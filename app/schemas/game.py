@@ -16,10 +16,15 @@ class RoomStatus(str, Enum):
     FINISHED = "finished"
 
 
+class CreateGameRequest(BaseModel):
+    game_mode: GameMode
+    player_names: List[str]
+
+
 class DiceRollRequest(BaseModel):
     game_id: str
     player_id: str
-    locked_dice: List[int]
+    locked_dice: List[int] = []
 
 
 class ScoreSubmitRequest(BaseModel):
@@ -45,7 +50,7 @@ class RoomResponse(BaseModel):
     max_players: int
     players: List[Dict[str, Any]]
     status: RoomStatus
-    is_host: bool
+    is_host: bool = False
 
 
 class GameStateResponse(BaseModel):

@@ -1,36 +1,59 @@
 from fastapi import APIRouter, HTTPException, Depends, WebSocket, WebSocketDisconnect
-from typing import List
+from typing import List, Dict, Any
 from app.schemas.game import (
     GameMode,
+    CreateGameRequest,
     DiceRollRequest,
     ScoreSubmitRequest,
     CreateRoomRequest,
-    JoinRoomRequest,
-    RoomResponse,
-    GameStateResponse
+    JoinRoomRequest
 )
 from app.game.game_manager import GameManager
 from app.websocket.manager import manager
+from app.core.response import ApiResponse, ApiResponseModel
 import uuid
 import random
 
 router = APIRouter(tags=["游戏"])
 
 
-@router.post("/create", response_model=GameStateResponse, summary="创建游戏", description="创建新的快艇骰子游戏对局")
-async def create_game(game_mode: GameMode, player_names: List[str]):
+@router.post(
+    "/create", 
+    summary="创建游戏", 
+    description="创建新的快艇骰子游戏对局",
+    responses={
+        200: {
+            "model": ApiResponseModel[Dict],
+            "description": "成功响应"
+        }
+    }
+)
+async def create_game(request: CreateGameRequest):
     """
     创建新的快艇骰子游戏
     
     - **game_mode**: 游戏模式（local/ai/online）
     - **player_names**: 玩家名称列表
     """
-    game = GameManager.create_game(game_mode, player_names)
+    game = GameManager.create_game(request.game_mode, request.player_names)
     game.start()
-    return game.to_dict()
+    return ApiResponse.success(
+        data=game.to_dict(),
+        msg="游戏创建成功"
+    )
 
 
-@router.get("/{game_id}", response_model=GameStateResponse, summary="获取游戏状态", description="获取指定游戏的当前状态")
+@router.get(
+    "/{game_id}", 
+    summary="获取游戏状态", 
+    description="获取指定游戏的当前状态",
+    responses={
+        200: {
+            "model": ApiResponseModel[Dict],
+            "description": "成功响应"
+        }
+    }
+)
 async def get_game_state(game_id: str):
     """
     获取游戏状态
@@ -39,11 +62,24 @@ async def get_game_state(game_id: str):
     """
     game = GameManager.get_game(game_id)
     if not game:
-        raise HTTPException(status_code=404, detail="游戏不存在")
-    return game.to_dict()
+        return ApiResponse.error(msg="游戏不存在", code=404)
+    return ApiResponse.success(
+        data=game.to_dict(),
+        msg="获取成功"
+    )
 
 
-@router.post("/{game_id}/roll", summary="掷骰子", description="掷骰子，支持锁定指定骰子")
+@router.post(
+    "/{game_id}/roll", 
+    summary="掷骰子", 
+    description="掷骰子，支持锁定指定骰子",
+    responses={
+        200: {
+            "model": ApiResponseModel[Dict],
+            "description": "成功响应"
+        }
+    }
+)
 async def roll_dice(game_id: str, request: DiceRollRequest):
     """
     掷骰子
@@ -53,18 +89,31 @@ async def roll_dice(game_id: str, request: DiceRollRequest):
     """
     game = GameManager.get_game(game_id)
     if not game:
-        raise HTTPException(status_code=404, detail="游戏不存在")
+        return ApiResponse.error(msg="游戏不存在", code=404)
     try:
         dice = game.roll_dice(request.locked_dice)
-        return {
-            "dice": dice,
-            "rolls_left": game.rolls_left
-        }
+        return ApiResponse.success(
+            data={
+                "dice": dice,
+                "rolls_left": game.rolls_left
+            },
+            msg="掷骰子成功"
+        )
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        return ApiResponse.error(msg=str(e), code=400)
 
 
-@router.post("/{game_id}/score", summary="提交分数", description="将当前骰子组合的分数提交到指定计分项")
+@router.post(
+    "/{game_id}/score", 
+    summary="提交分数", 
+    description="将当前骰子组合的分数提交到指定计分项",
+    responses={
+        200: {
+            "model": ApiResponseModel[Dict],
+            "description": "成功响应"
+        }
+    }
+)
 async def submit_score(game_id: str, request: ScoreSubmitRequest):
     """
     提交分数
@@ -75,16 +124,19 @@ async def submit_score(game_id: str, request: ScoreSubmitRequest):
     """
     game = GameManager.get_game(game_id)
     if not game:
-        raise HTTPException(status_code=404, detail="游戏不存在")
+        return ApiResponse.error(msg="游戏不存在", code=404)
     try:
         score = game.submit_score(request.player_id, request.category)
-        return {
-            "category": request.category,
-            "score": score,
-            "game_state": game.to_dict()
-        }
+        return ApiResponse.success(
+            data={
+                "category": request.category,
+                "score": score,
+                "game_state": game.to_dict()
+            },
+            msg="分数提交成功"
+        )
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        return ApiResponse.error(msg=str(e), code=400)
 
 
 rooms = {}
@@ -95,7 +147,17 @@ def generate_room_code():
     return ''.join(random.choice(chars) for _ in range(6))
 
 
-@router.post("/rooms/create", response_model=RoomResponse, summary="创建房间", description="创建联机游戏房间")
+@router.post(
+    "/rooms/create", 
+    summary="创建房间", 
+    description="创建联机游戏房间",
+    responses={
+        200: {
+            "model": ApiResponseModel[Dict],
+            "description": "成功响应"
+        }
+    }
+)
 async def create_room(request: CreateRoomRequest):
     """
     创建联机房间
@@ -117,10 +179,23 @@ async def create_room(request: CreateRoomRequest):
         "host_id": None
     }
     rooms[room_code] = room
-    return room
+    return ApiResponse.success(
+        data=room,
+        msg="房间创建成功"
+    )
 
 
-@router.post("/rooms/join", summary="加入房间", description="加入指定的联机房间")
+@router.post(
+    "/rooms/join", 
+    summary="加入房间", 
+    description="加入指定的联机房间",
+    responses={
+        200: {
+            "model": ApiResponseModel[Dict],
+            "description": "成功响应"
+        }
+    }
+)
 async def join_room(request: JoinRoomRequest):
     """
     加入联机房间
@@ -129,13 +204,13 @@ async def join_room(request: JoinRoomRequest):
     - **player_name**: 玩家名称
     """
     if request.room_code not in rooms:
-        raise HTTPException(status_code=404, detail="房间不存在")
+        return ApiResponse.error(msg="房间不存在", code=404)
     
     room = rooms[request.room_code]
     if room["status"] != "waiting":
-        raise HTTPException(status_code=400, detail="房间已开始游戏")
+        return ApiResponse.error(msg="房间已开始游戏", code=409)
     if len(room["players"]) >= room["max_players"]:
-        raise HTTPException(status_code=400, detail="房间已满")
+        return ApiResponse.error(msg="房间已满", code=400)
     
     player_id = str(uuid.uuid4())
     player = {
@@ -149,13 +224,26 @@ async def join_room(request: JoinRoomRequest):
     
     room["players"].append(player)
     
-    return {
-        "room": room,
-        "player_id": player_id
+    return ApiResponse.success(
+        data={
+            "room": room,
+            "player_id": player_id
+        },
+        msg="加入房间成功"
+    )
+
+
+@router.get(
+    "/rooms/{room_code}", 
+    summary="获取房间信息", 
+    description="获取指定房间的详细信息",
+    responses={
+        200: {
+            "model": ApiResponseModel[Dict],
+            "description": "成功响应"
+        }
     }
-
-
-@router.get("/rooms/{room_code}", response_model=RoomResponse, summary="获取房间信息", description="获取指定房间的详细信息")
+)
 async def get_room(room_code: str):
     """
     获取房间信息
@@ -163,8 +251,11 @@ async def get_room(room_code: str):
     - **room_code**: 房间号
     """
     if room_code not in rooms:
-        raise HTTPException(status_code=404, detail="房间不存在")
-    return rooms[room_code]
+        return ApiResponse.error(msg="房间不存在", code=404)
+    return ApiResponse.success(
+        data=rooms[room_code],
+        msg="获取成功"
+    )
 
 
 @router.websocket("/ws/{room_code}/{player_id}")
