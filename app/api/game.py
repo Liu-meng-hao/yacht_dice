@@ -14,26 +14,43 @@ from app.websocket.manager import manager
 import uuid
 import random
 
-router = APIRouter()
+router = APIRouter(tags=["游戏"])
 
 
-@router.post("/create", response_model=GameStateResponse)
+@router.post("/create", response_model=GameStateResponse, summary="创建游戏", description="创建新的快艇骰子游戏对局")
 async def create_game(game_mode: GameMode, player_names: List[str]):
+    """
+    创建新的快艇骰子游戏
+    
+    - **game_mode**: 游戏模式（local/ai/online）
+    - **player_names**: 玩家名称列表
+    """
     game = GameManager.create_game(game_mode, player_names)
     game.start()
     return game.to_dict()
 
 
-@router.get("/{game_id}", response_model=GameStateResponse)
+@router.get("/{game_id}", response_model=GameStateResponse, summary="获取游戏状态", description="获取指定游戏的当前状态")
 async def get_game_state(game_id: str):
+    """
+    获取游戏状态
+    
+    - **game_id**: 游戏ID
+    """
     game = GameManager.get_game(game_id)
     if not game:
         raise HTTPException(status_code=404, detail="游戏不存在")
     return game.to_dict()
 
 
-@router.post("/{game_id}/roll")
+@router.post("/{game_id}/roll", summary="掷骰子", description="掷骰子，支持锁定指定骰子")
 async def roll_dice(game_id: str, request: DiceRollRequest):
+    """
+    掷骰子
+    
+    - **game_id**: 游戏ID
+    - **locked_dice**: 要锁定的骰子索引列表（0-4）
+    """
     game = GameManager.get_game(game_id)
     if not game:
         raise HTTPException(status_code=404, detail="游戏不存在")
@@ -47,8 +64,15 @@ async def roll_dice(game_id: str, request: DiceRollRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.post("/{game_id}/score")
+@router.post("/{game_id}/score", summary="提交分数", description="将当前骰子组合的分数提交到指定计分项")
 async def submit_score(game_id: str, request: ScoreSubmitRequest):
+    """
+    提交分数
+    
+    - **game_id**: 游戏ID
+    - **player_id**: 玩家ID
+    - **category**: 计分项名称
+    """
     game = GameManager.get_game(game_id)
     if not game:
         raise HTTPException(status_code=404, detail="游戏不存在")
@@ -71,8 +95,15 @@ def generate_room_code():
     return ''.join(random.choice(chars) for _ in range(6))
 
 
-@router.post("/rooms/create", response_model=RoomResponse)
+@router.post("/rooms/create", response_model=RoomResponse, summary="创建房间", description="创建联机游戏房间")
 async def create_room(request: CreateRoomRequest):
+    """
+    创建联机房间
+    
+    - **room_name**: 房间名称（可选）
+    - **max_players**: 最大玩家数（默认4）
+    - **game_mode**: 游戏模式
+    """
     room_code = generate_room_code()
     while room_code in rooms:
         room_code = generate_room_code()
@@ -89,8 +120,14 @@ async def create_room(request: CreateRoomRequest):
     return room
 
 
-@router.post("/rooms/join")
+@router.post("/rooms/join", summary="加入房间", description="加入指定的联机房间")
 async def join_room(request: JoinRoomRequest):
+    """
+    加入联机房间
+    
+    - **room_code**: 房间号
+    - **player_name**: 玩家名称
+    """
     if request.room_code not in rooms:
         raise HTTPException(status_code=404, detail="房间不存在")
     
@@ -118,8 +155,13 @@ async def join_room(request: JoinRoomRequest):
     }
 
 
-@router.get("/rooms/{room_code}", response_model=RoomResponse)
+@router.get("/rooms/{room_code}", response_model=RoomResponse, summary="获取房间信息", description="获取指定房间的详细信息")
 async def get_room(room_code: str):
+    """
+    获取房间信息
+    
+    - **room_code**: 房间号
+    """
     if room_code not in rooms:
         raise HTTPException(status_code=404, detail="房间不存在")
     return rooms[room_code]
@@ -127,6 +169,12 @@ async def get_room(room_code: str):
 
 @router.websocket("/ws/{room_code}/{player_id}")
 async def websocket_endpoint(websocket: WebSocket, room_code: str, player_id: str):
+    """
+    WebSocket 连接端点
+    
+    - **room_code**: 房间号
+    - **player_id**: 玩家ID
+    """
     await manager.connect(room_code, player_id, websocket)
     try:
         while True:
