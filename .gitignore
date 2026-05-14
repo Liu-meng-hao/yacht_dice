@@ -1,0 +1,48 @@
+# 环境变量文件
+.env                 # 个人本地配置（不提交）
+.env.local           # 个人本地配置（不提交）
+.env.development     # 个人本地配置（不提交）
+# .env.shared      # 共享配置（可选，如需共享数据库时使用，取消注释提交）
+
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 虚拟环境
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 日志
+logs/
+*.log
+
+# 数据库
+*.db
+*.sqlite

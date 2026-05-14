@@ -1,8 +1,17 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
+import os
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=os.getenv("ENV_FILE", ".env"),
+        case_sensitive=True,
+        extra="ignore"
+    )
+    
+    ENVIRONMENT: str = "development"
+    
     PROJECT_NAME: str = "快艇骰子游戏后端"
     PROJECT_VERSION: str = "1.0.0"
     API_V1_STR: str = "/api/v1"
@@ -23,10 +32,6 @@ class Settings(BaseSettings):
     REDIS_DB: int = 0
     
     WEBSOCKET_PORT: int = 8000
-    
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
 
 
 settings = Settings()
