@@ -21,6 +21,7 @@ class Game:
         self.players = players
         self.current_player_index = 0
         self.dice_manager = DiceManager()
+        self.dice_locked: List[bool] = [False, False, False, False, False]
         self.rolls_left = 3
         self.status = "waiting"
         self.created_at = datetime.utcnow()
@@ -29,6 +30,7 @@ class Game:
     def start(self):
         self.status = "playing"
         self.rolls_left = 3
+        self.dice_locked = [False, False, False, False, False]
         self.dice_manager.reset()
     
     def get_current_player(self) -> Optional[Player]:
@@ -39,9 +41,25 @@ class Game:
     def roll_dice(self, locked_indices: List[int] = None) -> List[int]:
         if self.rolls_left <= 0:
             raise Exception("No rolls left")
-        dice = self.dice_manager.roll(locked_indices)
+        
+        if locked_indices:
+            for idx in locked_indices:
+                if 0 <= idx < 5:
+                    self.dice_locked[idx] = True
+        
+        dice = self.dice_manager.roll([i for i, locked in enumerate(self.dice_locked) if locked])
         self.rolls_left -= 1
         return dice
+    
+    def reset_dice(self):
+        self.dice_locked = [False, False, False, False, False]
+        self.rolls_left = 3
+        self.dice_manager.reset()
+    
+    def toggle_dice_lock(self, dice_index: int) -> List[bool]:
+        if 0 <= dice_index < 5:
+            self.dice_locked[dice_index] = not self.dice_locked[dice_index]
+        return self.dice_locked
     
     def submit_score(self, player_id: str, category: str) -> int:
         player = next((p for p in self.players if p.player_id == player_id), None)
@@ -62,6 +80,7 @@ class Game:
     def _next_turn(self):
         self.current_player_index = (self.current_player_index + 1) % len(self.players)
         self.rolls_left = 3
+        self.dice_locked = [False, False, False, False, False]
         self.dice_manager.reset()
         
         if self._is_game_finished():
@@ -95,6 +114,7 @@ class Game:
                 for p in self.players
             ],
             "dice": self.dice_manager.get_dice(),
+            "dice_locked": self.dice_locked,
             "rolls_left": self.rolls_left,
             "status": self.status,
             "created_at": self.created_at.isoformat(),
