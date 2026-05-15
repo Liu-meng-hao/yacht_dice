@@ -243,15 +243,18 @@ async def start_game(room_code: str, request: StartGameRequest):
         return ApiResponse.error(msg="至少需要2名玩家", code=400)
     
     player_names = [p["name"] for p in room["players"]]
-    game = GameManager.create_game("online", player_names)
-    game.start()
+    game_data = GameManager.create_game("online", player_names)
+    GameManager.start_game(game_data)
+    game_dict = game_data.to_dict()
+    game_id = game_dict["game_id"]
+    game_data.close()
     
     room["status"] = RoomStatus.PLAYING
-    room["game_id"] = game.game_id
+    room["game_id"] = game_id
     
     return ApiResponse.success(
         data=StartGameResponse(
-            game_id=game.game_id,
+            game_id=game_id,
             room_code=room_code
         ),
         msg="游戏开始"

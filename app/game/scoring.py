@@ -5,8 +5,8 @@ from collections import Counter
 class ScoreCalculator:
     CATEGORIES = [
         "ones", "twos", "threes", "fours", "fives", "sixes",
-        "three_of_a_kind", "four_of_a_kind", "full_house",
-        "small_straight", "large_straight", "yahtzee", "chance"
+        "threeOfAKind", "fourOfAKind", "fullHouse",
+        "smallStraight", "largeStraight", "yahtzee", "chance"
     ]
     
     @staticmethod
@@ -78,6 +78,25 @@ class ScoreCalculator:
             for cat in ["ones", "twos", "threes", "fours", "fives", "sixes"]
         )
         return 35 if upper_sum >= 63 else 0
+    
+    @staticmethod
+    def calculate_upper_score(scores: Dict[str, Optional[int]]) -> int:
+        return sum(
+            scores.get(cat, 0) or 0
+            for cat in ["ones", "twos", "threes", "fours", "fives", "sixes"]
+        )
+    
+    @staticmethod
+    def calculate_lower_score(scores: Dict[str, Optional[int]]) -> int:
+        return sum(
+            scores.get(cat, 0) or 0
+            for cat in ["threeOfAKind", "fourOfAKind", "fullHouse", 
+                       "smallStraight", "largeStraight", "yahtzee", "chance"]
+        )
+    
+    @staticmethod
+    def calculate_bonus(scores: Dict[str, Optional[int]]) -> int:
+        return ScoreCalculator.calculate_upper_bonus(scores)
     
     @staticmethod
     def calculate_total_score(scores: Dict[str, Optional[int]]) -> int:

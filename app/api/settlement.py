@@ -29,30 +29,35 @@ router = APIRouter(tags=["结算"])
     }
 )
 async def get_settlement(game_id: str):
-    game = GameManager.get_game(game_id)
-    if not game:
+    game_data = GameManager.get_game(game_id)
+    if not game_data:
         return ApiResponse.error(msg="游戏不存在", code=404)
     
-    if game.status != "finished":
+    game_dict = game_data.to_dict()
+    
+    if game_dict["status"] != "finished":
+        game_data.close()
         return ApiResponse.error(msg="游戏未结束", code=409)
     
     players_with_rank = []
-    sorted_players = sorted(game.players, key=lambda p: -p.total_score)
+    sorted_players = sorted(game_dict["players"], key=lambda p: -p["total_score"])
     
     for rank, player in enumerate(sorted_players, 1):
         players_with_rank.append(SettlementPlayer(
-            player_id=player.player_id,
-            name=player.name,
-            final_score=player.total_score,
+            player_id=player["player_id"],
+            name=player["name"],
+            final_score=player["total_score"],
             rank=rank,
             is_winner=(rank == 1),
-            scores=player.scores
+            scores=player["scores"]
         ))
+    
+    game_data.close()
     
     return ApiResponse.success(
         data=SettlementResponse(
-            game_id=game.game_id,
-            finished_at=game.finished_at.isoformat() if game.finished_at else "",
+            game_id=game_dict["game_id"],
+            finished_at=game_dict["finished_at"] or "",
             players=players_with_rank
         ),
         msg="获取成功"
@@ -71,18 +76,23 @@ async def get_settlement(game_id: str):
     }
 )
 async def rematch(game_id: str, request: RematchRequest):
-    game = GameManager.get_game(game_id)
-    if not game:
+    game_data = GameManager.get_game(game_id)
+    if not game_data:
         return ApiResponse.error(msg="游戏不存在", code=404)
     
-    player_names = [p.name for p in game.players]
-    new_game = GameManager.create_game(game.game_mode, player_names)
-    new_game.start()
-    new_game_dict = new_game.to_dict()
+    game_dict = game_data.to_dict()
+    player_names = [p["name"] for p in game_dict["players"]]
+    game_mode = game_dict["game_mode"]
+    game_data.close()
+    
+    new_game_data = GameManager.create_game(game_mode, player_names)
+    GameManager.start_game(new_game_data)
+    new_game_dict = new_game_data.to_dict()
+    new_game_data.close()
     
     return ApiResponse.success(
         data=RematchResponse(
-            new_game_id=new_game.game_id,
+            new_game_id=new_game_dict["game_id"],
             game_state=GameStateResponse(
                 game_id=new_game_dict["game_id"],
                 game_mode=GameMode(new_game_dict["game_mode"]),
@@ -112,8 +122,5 @@ async def rematch(game_id: str, request: RematchRequest):
     }
 )
 async def back_to_home(game_id: str, request: BackToHomeRequest):
-    game = GameManager.get_game(game_id)
-    if game:
-        GameManager.remove_game(game_id)
-    
+    GameManager.remove_game(game_id)
     return ApiResponse.success(msg="已返回首页")

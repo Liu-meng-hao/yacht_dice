@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 from typing import Dict, List
+import json
 from app.schemas.game import (
     PossibleScoresResponse,
     ScoreHistoryRequest,
@@ -26,11 +27,12 @@ router = APIRouter(tags=["计分"])
     }
 )
 async def get_possible_scores(game_id: str):
-    game = GameManager.get_game(game_id)
-    if not game:
+    game_data = GameManager.get_game(game_id)
+    if not game_data:
         return ApiResponse.error(msg="游戏不存在", code=404)
     
-    dice = game.dice_manager.get_dice()
+    game_dict = game_data.to_dict()
+    dice = game_dict["dice"]
     possible_scores: Dict[str, int] = {}
     
     for category in ScoreCalculator.CATEGORIES:
@@ -38,6 +40,8 @@ async def get_possible_scores(game_id: str):
             possible_scores[category] = ScoreCalculator.calculate_score(dice, category)
         except:
             possible_scores[category] = None
+    
+    game_data.close()
     
     return ApiResponse.success(
         data=PossibleScoresResponse(possible_scores=possible_scores),

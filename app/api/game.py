@@ -34,9 +34,11 @@ router = APIRouter(tags=["游戏"])
     }
 )
 async def create_game(request: CreateGameRequest):
-    game = GameManager.create_game(request.game_mode, request.player_names)
-    game.start()
-    game_dict = game.to_dict()
+    game_data = GameManager.create_game(request.game_mode.value, request.player_names)
+    GameManager.start_game(game_data)
+    game_dict = game_data.to_dict()
+    game_data.close()
+    
     return ApiResponse.success(
         data=GameStateResponse(
             game_id=game_dict["game_id"],
@@ -66,10 +68,12 @@ async def create_game(request: CreateGameRequest):
     }
 )
 async def get_game_state(game_id: str):
-    game = GameManager.get_game(game_id)
-    if not game:
+    game_data = GameManager.get_game(game_id)
+    if not game_data:
         return ApiResponse.error(msg="游戏不存在", code=404)
-    game_dict = game.to_dict()
+    game_dict = game_data.to_dict()
+    game_data.close()
+    
     return ApiResponse.success(
         data=GameStateResponse(
             game_id=game_dict["game_id"],
@@ -99,20 +103,25 @@ async def get_game_state(game_id: str):
     }
 )
 async def roll_dice(game_id: str, request: DiceRollRequest):
-    game = GameManager.get_game(game_id)
-    if not game:
+    game_data = GameManager.get_game(game_id)
+    if not game_data:
         return ApiResponse.error(msg="游戏不存在", code=404)
     try:
-        dice = game.roll_dice(request.locked_dice)
+        user_id = int(request.player_id)
+        dice = GameManager.roll_dice(game_data, user_id, request.locked_dice)
+        game_dict = game_data.to_dict()
+        game_data.close()
+        
         return ApiResponse.success(
             data=DiceRollResponse(
                 dice=dice,
-                dice_locked=game.dice_locked,
-                rolls_left=game.rolls_left
+                dice_locked=game_dict["dice_locked"],
+                rolls_left=game_dict["rolls_left"]
             ),
             msg="掷骰子成功"
         )
     except Exception as e:
+        game_data.close()
         return ApiResponse.error(msg=str(e), code=400)
 
 
@@ -128,15 +137,18 @@ async def roll_dice(game_id: str, request: DiceRollRequest):
     }
 )
 async def reset_dice(game_id: str, request: DiceResetRequest):
-    game = GameManager.get_game(game_id)
-    if not game:
+    game_data = GameManager.get_game(game_id)
+    if not game_data:
         return ApiResponse.error(msg="游戏不存在", code=404)
-    game.reset_dice()
+    
+    game_dict = game_data.to_dict()
+    game_data.close()
+    
     return ApiResponse.success(
         data=DiceRollResponse(
-            dice=game.dice_manager.get_dice(),
-            dice_locked=game.dice_locked,
-            rolls_left=game.rolls_left
+            dice=game_dict["dice"],
+            dice_locked=game_dict["dice_locked"],
+            rolls_left=game_dict["rolls_left"]
         ),
         msg="骰子已重置"
     )
@@ -154,10 +166,16 @@ async def reset_dice(game_id: str, request: DiceResetRequest):
     }
 )
 async def toggle_dice_lock(game_id: str, request: DiceToggleRequest):
-    game = GameManager.get_game(game_id)
-    if not game:
+    game_data = GameManager.get_game(game_id)
+    if not game_data:
         return ApiResponse.error(msg="游戏不存在", code=404)
-    dice_locked = game.toggle_dice_lock(request.dice_index)
+    
+    game_dict = game_data.to_dict()
+    dice_locked = game_dict["dice_locked"]
+    if 0 <= request.dice_index < 5:
+        dice_locked[request.dice_index] = not dice_locked[request.dice_index]
+    game_data.close()
+    
     return ApiResponse.success(
         data=DiceToggleResponse(dice_locked=dice_locked),
         msg="切换成功"
@@ -176,13 +194,17 @@ async def toggle_dice_lock(game_id: str, request: DiceToggleRequest):
     }
 )
 async def submit_score(game_id: str, request: ScoreSubmitRequest):
-    game = GameManager.get_game(game_id)
-    if not game:
+    game_data = GameManager.get_game(game_id)
+    if not game_data:
         return ApiResponse.error(msg="游戏不存在", code=404)
     try:
-        score = game.submit_score(request.player_id, request.category)
-        game_dict = game.to_dict()
-        next_player = game.get_current_player().player_id if game.status != "finished" else None
+        user_id = int(request.player_id)
+        score = GameManager.submit_score(game_data, user_id, request.category)
+        game_dict = game_data.to_dict()
+        
+        next_player = game_dict["current_player"] if game_dict["status"] != "finished" else None
+        
+        game_data.close()
         
         return ApiResponse.success(
             data=ScoreSubmitResponse(
@@ -201,11 +223,12 @@ async def submit_score(game_id: str, request: ScoreSubmitRequest):
                     finished_at=game_dict["finished_at"]
                 ),
                 next_player=next_player,
-                is_game_finished=(game.status == "finished")
+                is_game_finished=(game_dict["status"] == "finished")
             ),
             msg="分数提交成功"
         )
     except Exception as e:
+        game_data.close()
         return ApiResponse.error(msg=str(e), code=400)
 
 
@@ -221,9 +244,6 @@ async def submit_score(game_id: str, request: ScoreSubmitRequest):
     }
 )
 async def quit_game(game_id: str, request: QuitGameRequest):
-    game = GameManager.get_game(game_id)
-    if not game:
-        return ApiResponse.error(msg="游戏不存在", code=404)
     GameManager.remove_game(game_id)
     return ApiResponse.success(msg="已退出游戏")
 
