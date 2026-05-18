@@ -3,7 +3,6 @@ from typing import Optional
 from app.schemas.game import (
     GameMode,
     GameStatus,
-    CreateGameRequest,
     DiceRollRequest,
     DiceResetRequest,
     DiceToggleRequest,
@@ -20,40 +19,6 @@ from app.websocket.manager import manager
 from app.core.response import ApiResponse, ApiResponseModel
 
 router = APIRouter(tags=["游戏"])
-
-
-@router.post(
-    "/create",
-    summary="创建游戏",
-    description="创建新的快艇骰子游戏对局",
-    responses={
-        200: {
-            "model": ApiResponseModel[GameStateResponse],
-            "description": "成功响应"
-        }
-    }
-)
-async def create_game(request: CreateGameRequest):
-    game_data = GameManager.create_game(request.game_mode.value, request.player_names)
-    GameManager.start_game(game_data)
-    game_dict = game_data.to_dict()
-    game_data.close()
-    
-    return ApiResponse.success(
-        data=GameStateResponse(
-            game_id=game_dict["game_id"],
-            game_mode=GameMode(game_dict["game_mode"]),
-            current_player=game_dict["current_player"],
-            players=[GamePlayer(**p) for p in game_dict["players"]],
-            dice=game_dict["dice"],
-            dice_locked=game_dict["dice_locked"],
-            rolls_left=game_dict["rolls_left"],
-            status=GameStatus(game_dict["status"]),
-            created_at=game_dict["created_at"],
-            finished_at=game_dict["finished_at"]
-        ),
-        msg="游戏创建成功"
-    )
 
 
 @router.get(
