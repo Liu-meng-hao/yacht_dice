@@ -38,10 +38,10 @@ class ApiResponse:
             "data": dict_to_camel(data) if data is not None else None
         }
         return JSONResponse(
-            content=json.dumps(response_data, ensure_ascii=False),
+            content=response_data,
             media_type="application/json"
         )
-    
+
     @staticmethod
     def error(msg: str = "失败", code: int = 400, data: Any = None):
         response_data = {
@@ -50,7 +50,6 @@ class ApiResponse:
             "data": dict_to_camel(data) if data is not None else None
         }
         return JSONResponse(
-            content=json.dumps(response_data, ensure_ascii=False),
-            status_code=code,
+            content=response_data,
             media_type="application/json"
         )
