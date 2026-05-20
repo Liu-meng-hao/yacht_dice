@@ -3,6 +3,8 @@ from typing import Optional
 from app.schemas.game import (
     GameMode,
     GameStatus,
+    CreateGameRequest,
+    CreateGameResponse,
     DiceRollRequest,
     DiceResetRequest,
     DiceToggleRequest,
@@ -19,6 +21,33 @@ from app.websocket.manager import manager
 from app.core.response import ApiResponse, ApiResponseModel
 
 router = APIRouter(tags=["游戏"])
+
+
+@router.post(
+    "/create",
+    summary="创建游戏",
+    description="创建新游戏，支持本地多人、人机对战模式",
+    responses={
+        200: {
+            "description": "成功响应"
+        }
+    }
+)
+async def create_game(request: CreateGameRequest):
+    try:
+        game_data = GameManager.create_game(request.game_mode.value, request.player_names)
+        game_dict = game_data.to_dict()
+        game_data.close()
+        
+        return ApiResponse.success(
+            data=CreateGameResponse(
+                game_id=game_dict["game_id"],
+                player_id=game_dict["players"][0]["player_id"]
+            ),
+            msg="游戏创建成功"
+        )
+    except Exception as e:
+        return ApiResponse.error(msg=str(e), code=400)
 
 
 @router.get(
@@ -215,6 +244,9 @@ async def quit_game(game_id: str, request: QuitGameRequest):
 
 @router.websocket("/ws/{game_id}/{player_id}")
 async def websocket_endpoint(websocket: WebSocket, game_id: str, player_id: str):
+    """WebSocket 游戏实时通信
+    用于多人游戏状态实时同步
+    """
     await manager.connect(game_id, player_id, websocket)
     try:
         while True:
