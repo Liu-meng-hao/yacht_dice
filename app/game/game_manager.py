@@ -1,6 +1,7 @@
 from typing import List, Dict, Optional, Any
 from datetime import datetime
 import json
+from sqlalchemy import text
 from app.db.session import SessionLocal
 from app.models.game import Game as GameModel
 from app.models.game_player import GamePlayer
@@ -22,10 +23,55 @@ class GameData:
     
     def _load_data(self):
         """从数据库加载数据"""
-        self.db_game = self.db.query(GameModel).filter(GameModel.id == self.db_game_id).first()
-        self.db_players = self.db.query(GamePlayer).filter(GamePlayer.game_id == self.db_game_id).order_by(GamePlayer.player_order).all()
-        self.db_round = self.db.query(GameRound).filter(GameRound.game_id == self.db_game_id).first()
-        self.score_items = {si.item_name: si for si in self.db.query(ScoreItem).all()}
+        print("========== LOAD GAME ==========")
+        print("db_game_id:", self.db_game_id)
+        print("db url:", self.db.bind.url)
+
+        self.db_game = self.db.query(GameModel).filter(
+            GameModel.id == self.db_game_id
+        ).first()
+
+        print("db_game:", self.db_game)
+
+        self.db_players = self.db.query(GamePlayer).filter(
+            GamePlayer.game_id == self.db_game_id
+        ).order_by(GamePlayer.player_order).all()
+
+        print("db_players:", self.db_players)
+
+        self.db_round = self.db.query(GameRound).filter(
+            GameRound.game_id == self.db_game_id
+        ).first()
+
+        print("db_round:", self.db_round)
+
+        self.score_items = {
+            si.item_name: si
+            for si in self.db.query(ScoreItem).all()
+        }
+
+        print("score_items count:", len(self.score_items))
+        print("========== LOAD GAME ==========")
+
+        print("db url:", self.db.bind.url)
+
+        current_db = self.db.execute(
+            text("SELECT DATABASE()")
+        ).scalar()
+
+        print("current database:", current_db)
+
+        result = self.db.execute(
+            text("SELECT * FROM game")
+        ).fetchall()
+
+        print("raw game table:", result)
+
+        self.db_game = self.db.query(GameModel).filter(
+            GameModel.id == self.db_game_id
+        ).first()
+
+        print("db_game:", self.db_game)
     
     def get_current_player(self) -> Optional[GamePlayer]:
         """获取当前玩家"""
@@ -165,12 +211,23 @@ class GameManager:
         return GameData(game_id)
     
     @classmethod
-    def get_game(cls, game_id: str) -> Optional[GameData]:
-        """获取游戏"""
+    def get_game(cls, game_id: str):
         try:
+            print("game_id raw:", game_id)
             db_game_id = int(game_id)
-            return GameData(db_game_id)
-        except:
+            print("db_game_id:", db_game_id)
+            game_data = GameData(db_game_id)
+            print("game_data.db_game:", game_data.db_game)
+            if not game_data.db_game:
+                print("游戏不存在")
+                game_data.close()
+                return None
+
+            return game_data     
+        except Exception as e:
+            print("get_game error:", e)
+            import traceback
+            traceback.print_exc()
             return None
     
     @classmethod
