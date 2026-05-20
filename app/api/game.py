@@ -5,6 +5,7 @@ from app.schemas.game import (
     GameMode,
     GameStatus,
     CreateGameRequest,
+    CreateGameResponse,
     DiceRollRequest,
     DiceResetRequest,
     DiceToggleRequest,
@@ -26,10 +27,9 @@ router = APIRouter(tags=["游戏"])
 @router.post(
     "/create",
     summary="创建游戏",
-    description="创建新的快艇骰子游戏对局",
+    description="创建新游戏，支持本地多人、人机对战模式",
     responses={
         200: {
-            "model": ApiResponseModel[GameStateResponse],
             "description": "成功响应"
         }
     }
@@ -41,17 +41,9 @@ async def create_game(request: CreateGameRequest):
         game_data.close()
         
         return ApiResponse.success(
-            data=GameStateResponse(
+            data=CreateGameResponse(
                 game_id=game_dict["game_id"],
-                game_mode=GameMode(game_dict["game_mode"]),
-                current_player=game_dict["current_player"],
-                players=[GamePlayer(**p) for p in game_dict["players"]],
-                dice=game_dict["dice"],
-                dice_locked=game_dict["dice_locked"],
-                rolls_left=game_dict["rolls_left"],
-                status=GameStatus(game_dict["status"]),
-                created_at=game_dict["created_at"],
-                finished_at=game_dict["finished_at"]
+                player_id=game_dict["players"][0]["player_id"]
             ),
             msg="游戏创建成功"
         )
@@ -271,6 +263,9 @@ async def quit_game(game_id: str, request: QuitGameRequest):
 
 @router.websocket("/ws/{game_id}/{player_id}")
 async def websocket_endpoint(websocket: WebSocket, game_id: str, player_id: str):
+    """WebSocket 游戏实时通信
+    用于多人游戏状态实时同步
+    """
     await manager.connect(game_id, player_id, websocket)
     try:
         while True:
