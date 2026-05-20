@@ -1,8 +1,10 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from typing import Optional
+import re
 from app.schemas.game import (
     GameMode,
     GameStatus,
+    CreateGameRequest,
     DiceRollRequest,
     DiceResetRequest,
     DiceToggleRequest,
@@ -19,6 +21,60 @@ from app.websocket.manager import manager
 from app.core.response import ApiResponse, ApiResponseModel
 
 router = APIRouter(tags=["游戏"])
+
+
+@router.post(
+    "/create",
+    summary="创建游戏",
+    description="创建新的快艇骰子游戏对局",
+    responses={
+        200: {
+            "model": ApiResponseModel[GameStateResponse],
+            "description": "成功响应"
+        }
+    }
+)
+async def create_game(request: CreateGameRequest):
+    try:
+        game_data = GameManager.create_game(request.game_mode.value, request.player_names)
+        game_dict = game_data.to_dict()
+        game_data.close()
+        
+        return ApiResponse.success(
+            data=GameStateResponse(
+                game_id=game_dict["game_id"],
+                game_mode=GameMode(game_dict["game_mode"]),
+                current_player=game_dict["current_player"],
+                players=[GamePlayer(**p) for p in game_dict["players"]],
+                dice=game_dict["dice"],
+                dice_locked=game_dict["dice_locked"],
+                rolls_left=game_dict["rolls_left"],
+                status=GameStatus(game_dict["status"]),
+                created_at=game_dict["created_at"],
+                finished_at=game_dict["finished_at"]
+            ),
+            msg="游戏创建成功"
+        )
+    except Exception as e:
+        error_msg = str(e)
+        if "validation error" in error_msg.lower():
+            match = re.search(r'Field required|Input should be|validation error for (\w+)', error_msg)
+            if match:
+                if "Field required" in error_msg:
+                    field_match = re.search(r'Field required: (\w+)', error_msg)
+                    field = field_match.group(1) if field_match else "未知字段"
+                    error_msg = f"缺少必填字段: {field}"
+                elif "Input should be" in error_msg:
+                    field_match = re.search(r' (\w+)\s*$', error_msg.split('\n')[0])
+                    field = field_match.group(1) if field_match else "字段"
+                    error_msg = f"字段 {field} 类型错误或值为空"
+                else:
+                    model_match = re.search(r'validation error for (\w+)', error_msg)
+                    model = model_match.group(1) if model_match else ""
+                    error_msg = f"数据验证失败: {model}"
+        if game_data:
+            game_data.close()
+        return ApiResponse.error(msg=error_msg, code=400)
 
 
 @router.get(

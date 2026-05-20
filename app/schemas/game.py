@@ -27,11 +27,23 @@ class GameStatus(str, Enum):
 # ========================================
 
 class SoundSettingsUpdate(BaseModel):
-    sound_enabled: bool = Field(description="音效开关")
+    sound_enabled: int = Field(ge=0, le=1, description="音乐开关：0-关，1-开")
 
 
 class SoundSettingsResponse(BaseModel):
-    sound_enabled: bool = Field(description="音效开关状态")
+    sound_enabled: int = Field(description="音乐开关状态：0-关，1-开")
+
+
+class PointsResponse(BaseModel):
+    points: int = Field(description="玩家积分")
+
+
+class RulePopupSettingsUpdate(BaseModel):
+    rule_popup_enabled: int = Field(ge=0, le=1, description="规则显示：0-关，1-开")
+
+
+class RulePopupSettingsResponse(BaseModel):
+    rule_popup_enabled: int = Field(description="规则显示状态：0-关，1-开")
 
 
 class RuleCategory(BaseModel):

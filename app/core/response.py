@@ -41,15 +41,19 @@ class ApiResponse:
             content=response_data,
             media_type="application/json"
         )
-    
+
     @staticmethod
-    def error(msg: str = "失败", code: int = 400, data: Any = None):
+    def error(msg: str = "失败", code: int = 400, data: Any = None, **kwargs):
+        clean_msg = str(msg).replace("\n", " ").replace("\r", " ").strip()
+        clean_msg = " ".join(clean_msg.split())
         response_data = {
             "code": code,
-            "msg": msg,
+            "msg": clean_msg,
             "data": dict_to_camel(data) if data is not None else None
         }
         return JSONResponse(
-            content=response_data,
-            media_type="application/json"
+            content=json.dumps(response_data, ensure_ascii=False),
+            status_code=code,
+            media_type="application/json",
+            **kwargs
         )
