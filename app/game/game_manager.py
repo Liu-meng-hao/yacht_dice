@@ -10,6 +10,7 @@ from app.models.score_item import ScoreItem
 from app.models.user import User
 from app.game.dice import DiceManager
 from app.game.scoring import ScoreCalculator
+from app.core.security import validate_nickname, sanitize_nickname, escape_html
 
 
 class GameData:
@@ -58,7 +59,8 @@ class GameData:
         for p in self.db_players:
             user = self.db.query(User).filter(User.id == p.user_id).first()
             scores = self.get_player_scores(p.user_id)
-            user_name = user.nickname if user and user.nickname else f"Player{p.player_order}"
+            raw_name = user.nickname if user and user.nickname else f"Player{p.player_order}"
+            user_name = escape_html(raw_name)
             players.append({
                 "player_id": str(p.user_id),
                 "name": user_name,
@@ -107,9 +109,13 @@ class GameManager:
                 is_ai = (game_mode == "ai" and i > 0)
                 client_id = f"game-{datetime.now().strftime('%Y%m%d%H%M%S')}-{i}"
                 
+                sanitized_name = sanitize_nickname(name)
+                if not sanitized_name:
+                    sanitized_name = f"Player{i + 1}"
+                
                 db_user = User(
                     client_id=client_id,
-                    nickname=name,
+                    nickname=sanitized_name,
                     user_type=2 if is_ai else 1,
                     ai_difficulty=2 if is_ai else None
                 )
@@ -122,7 +128,8 @@ class GameManager:
                 player_count=len(users),
                 total_rounds=13,
                 game_status=1,
-                create_time=datetime.now()
+                create_time=datetime.now(),
+                start_time=datetime.now()
             )
             db.add(db_game)
             db.flush()

@@ -1,5 +1,6 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from typing import Optional
+import re
 from app.schemas.game import (
     GameMode,
     GameStatus,
@@ -47,7 +48,25 @@ async def create_game(request: CreateGameRequest):
             msg="游戏创建成功"
         )
     except Exception as e:
-        return ApiResponse.error(msg=str(e), code=400)
+        error_msg = str(e)
+        if "validation error" in error_msg.lower():
+            match = re.search(r'Field required|Input should be|validation error for (\w+)', error_msg)
+            if match:
+                if "Field required" in error_msg:
+                    field_match = re.search(r'Field required: (\w+)', error_msg)
+                    field = field_match.group(1) if field_match else "未知字段"
+                    error_msg = f"缺少必填字段: {field}"
+                elif "Input should be" in error_msg:
+                    field_match = re.search(r' (\w+)\s*$', error_msg.split('\n')[0])
+                    field = field_match.group(1) if field_match else "字段"
+                    error_msg = f"字段 {field} 类型错误或值为空"
+                else:
+                    model_match = re.search(r'validation error for (\w+)', error_msg)
+                    model = model_match.group(1) if model_match else ""
+                    error_msg = f"数据验证失败: {model}"
+        if game_data:
+            game_data.close()
+        return ApiResponse.error(msg=error_msg, code=400)
 
 
 @router.get(

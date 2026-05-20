@@ -36,7 +36,7 @@ class GameStatus(str, Enum):
 # ========================================
 
 class SoundSettingsUpdate(BaseModel):
-    sound_enabled: bool = Field(description="音效开关")
+    sound_enabled: int = Field(ge=0, le=1, description="音乐开关：0-关，1-开")
 
 
 class SoundSettingsResponse(CamelCaseBaseModel):

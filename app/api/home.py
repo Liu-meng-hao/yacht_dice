@@ -1,17 +1,51 @@
-from fastapi import APIRouter
-from typing import Dict
+from fastapi import APIRouter, Depends
+from typing import Dict, Optional
+from sqlalchemy.orm import Session
 from app.schemas.game import (
     SoundSettingsUpdate,
     SoundSettingsResponse,
     GameRulesResponse,
-    RuleCategory
+    RuleCategory,
+    PointsResponse,
+    RulePopupSettingsUpdate,
+    RulePopupSettingsResponse
 )
 from app.core.response import ApiResponse, ApiResponseModel
-from app.game.scoring import ScoreCalculator
+from app.db.session import get_db
+from app.models.user import User
+from app.models.user_setting import UserSetting
 
 router = APIRouter(tags=["首页"])
 
-sound_enabled = True
+DEFAULT_CLIENT_ID = "default_user"
+
+
+def get_or_create_user(db: Session, client_id: str = DEFAULT_CLIENT_ID) -> User:
+    user = db.query(User).filter(User.client_id == client_id).first()
+    if not user:
+        user = User(
+            client_id=client_id,
+            user_type=1,
+            points=1580
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    return user
+
+
+def get_or_create_user_setting(db: Session, user_id: int) -> UserSetting:
+    setting = db.query(UserSetting).filter(UserSetting.user_id == user_id).first()
+    if not setting:
+        setting = UserSetting(
+            user_id=user_id,
+            sound_enabled=1,
+            rule_popup_enabled=1
+        )
+        db.add(setting)
+        db.commit()
+        db.refresh(setting)
+    return setting
 
 
 @router.get(
@@ -66,6 +100,25 @@ async def get_game_rules():
 
 
 @router.get(
+    "/points",
+    summary="获取玩家积分",
+    description="获取当前玩家的积分",
+    responses={
+        200: {
+            "model": ApiResponseModel[PointsResponse],
+            "description": "成功响应"
+        }
+    }
+)
+async def get_points(db: Session = Depends(get_db)):
+    user = get_or_create_user(db)
+    return ApiResponse.success(
+        data=PointsResponse(points=user.points),
+        msg="获取成功"
+    )
+
+
+@router.get(
     "/settings/sound",
     summary="获取音效设置",
     description="获取当前音效开关状态",
@@ -76,14 +129,16 @@ async def get_game_rules():
         }
     }
 )
-async def get_sound_settings():
+async def get_sound_settings(db: Session = Depends(get_db)):
+    user = get_or_create_user(db)
+    setting = get_or_create_user_setting(db, user.id)
     return ApiResponse.success(
-        data=SoundSettingsResponse(sound_enabled=sound_enabled),
+        data=SoundSettingsResponse(sound_enabled=setting.sound_enabled),
         msg="获取成功"
     )
 
 
-@router.put(
+@router.post(
     "/settings/sound",
     summary="保存音效设置",
     description="保存音效开关状态",
@@ -94,10 +149,56 @@ async def get_sound_settings():
         }
     }
 )
-async def update_sound_settings(request: SoundSettingsUpdate):
-    global sound_enabled
-    sound_enabled = request.sound_enabled
+async def update_sound_settings(request: SoundSettingsUpdate, db: Session = Depends(get_db)):
+    user = get_or_create_user(db)
+    setting = get_or_create_user_setting(db, user.id)
+    setting.sound_enabled = request.sound_enabled
+    db.commit()
+    db.refresh(setting)
     return ApiResponse.success(
-        data=SoundSettingsResponse(sound_enabled=sound_enabled),
+        data=SoundSettingsResponse(sound_enabled=setting.sound_enabled),
+        msg="保存成功"
+    )
+
+
+@router.get(
+    "/settings/rule_popup",
+    summary="获取规则弹窗设置",
+    description="获取当前规则弹窗开关状态",
+    responses={
+        200: {
+            "model": ApiResponseModel[RulePopupSettingsResponse],
+            "description": "成功响应"
+        }
+    }
+)
+async def get_rule_popup_settings(db: Session = Depends(get_db)):
+    user = get_or_create_user(db)
+    setting = get_or_create_user_setting(db, user.id)
+    return ApiResponse.success(
+        data=RulePopupSettingsResponse(rule_popup_enabled=setting.rule_popup_enabled),
+        msg="获取成功"
+    )
+
+
+@router.post(
+    "/settings/rule_popup",
+    summary="保存规则弹窗设置",
+    description="保存规则弹窗开关状态",
+    responses={
+        200: {
+            "model": ApiResponseModel[RulePopupSettingsResponse],
+            "description": "成功响应"
+        }
+    }
+)
+async def update_rule_popup_settings(request: RulePopupSettingsUpdate, db: Session = Depends(get_db)):
+    user = get_or_create_user(db)
+    setting = get_or_create_user_setting(db, user.id)
+    setting.rule_popup_enabled = request.rule_popup_enabled
+    db.commit()
+    db.refresh(setting)
+    return ApiResponse.success(
+        data=RulePopupSettingsResponse(rule_popup_enabled=setting.rule_popup_enabled),
         msg="保存成功"
     )
