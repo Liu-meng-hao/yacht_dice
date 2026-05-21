@@ -15,11 +15,8 @@ class ScoreCalculator:
         counts = Counter(dice)
         
         if category in ["ones", "twos", "threes", "fours", "fives", "sixes"]:
-            target = int(category[:-1]) if category != "sixes" else 6
-            if category == "sixes":
-                target = 6
-            else:
-                target = int(category[:-1])
+            number_map = {"ones": 1, "twos": 2, "threes": 3, "fours": 4, "fives": 5, "sixes": 6}
+            target = number_map[category]
             return counts.get(target, 0) * target
         
         elif category == "three_of_a_kind":
@@ -91,7 +88,7 @@ class ScoreCalculator:
         return sum(
             scores.get(cat, 0) or 0
             for cat in ["threeOfAKind", "fourOfAKind", "fullHouse", 
-                       "smallStraight", "largeStraight", "yahtzee", "chance"]
+                "smallStraight", "largeStraight", "yahtzee", "chance"]
         )
     
     @staticmethod
