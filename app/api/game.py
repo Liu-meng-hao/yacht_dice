@@ -1,8 +1,11 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from typing import Optional
+import re
 from app.schemas.game import (
     GameMode,
     GameStatus,
+    CreateGameRequest,
+    CreateGameResponse,
     DiceRollRequest,
     DiceResetRequest,
     DiceToggleRequest,
@@ -19,6 +22,51 @@ from app.websocket.manager import manager
 from app.core.response import ApiResponse, ApiResponseModel
 
 router = APIRouter(tags=["游戏"])
+
+
+@router.post(
+    "/create",
+    summary="创建游戏",
+    description="创建新游戏，支持本地多人、人机对战模式",
+    responses={
+        200: {
+            "description": "成功响应"
+        }
+    }
+)
+async def create_game(request: CreateGameRequest):
+    try:
+        game_data = GameManager.create_game(request.game_mode.value, request.player_names)
+        game_dict = game_data.to_dict()
+        game_data.close()
+        
+        return ApiResponse.success(
+            data=CreateGameResponse(
+                game_id=game_dict["game_id"],
+                player_id=game_dict["players"][0]["player_id"]
+            ),
+            msg="游戏创建成功"
+        )
+    except Exception as e:
+        error_msg = str(e)
+        if "validation error" in error_msg.lower():
+            match = re.search(r'Field required|Input should be|validation error for (\w+)', error_msg)
+            if match:
+                if "Field required" in error_msg:
+                    field_match = re.search(r'Field required: (\w+)', error_msg)
+                    field = field_match.group(1) if field_match else "未知字段"
+                    error_msg = f"缺少必填字段: {field}"
+                elif "Input should be" in error_msg:
+                    field_match = re.search(r' (\w+)\s*$', error_msg.split('\n')[0])
+                    field = field_match.group(1) if field_match else "字段"
+                    error_msg = f"字段 {field} 类型错误或值为空"
+                else:
+                    model_match = re.search(r'validation error for (\w+)', error_msg)
+                    model = model_match.group(1) if model_match else ""
+                    error_msg = f"数据验证失败: {model}"
+        if game_data:
+            game_data.close()
+        return ApiResponse.error(msg=error_msg, code=400)
 
 
 @router.get(
@@ -215,6 +263,9 @@ async def quit_game(game_id: str, request: QuitGameRequest):
 
 @router.websocket("/ws/{game_id}/{player_id}")
 async def websocket_endpoint(websocket: WebSocket, game_id: str, player_id: str):
+    """WebSocket 游戏实时通信
+    用于多人游戏状态实时同步
+    """
     await manager.connect(game_id, player_id, websocket)
     try:
         while True:
