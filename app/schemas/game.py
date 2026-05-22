@@ -1,6 +1,6 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic.alias_generators import to_camel
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Literal
 from datetime import datetime
 from enum import Enum
 
@@ -9,8 +9,25 @@ class CamelCaseBaseModel(BaseModel):
     """基础模型，自动将下划线字段转换为小驼峰"""
     model_config = {
         "alias_generator": to_camel,
-        "populate_by_name": True
+        "populate_by_name": True,
+        "json_schema_extra": lambda schema: {k: v for k, v in schema.items() if k != 'properties'}
     }
+    
+    @classmethod
+    def model_json_schema(cls, *args, **kwargs):
+        schema = super().model_json_schema(*args, **kwargs)
+        if 'properties' in schema:
+            new_properties = {}
+            for field_name, field_info in schema['properties'].items():
+                alias = to_camel(field_name)
+                new_properties[alias] = field_info
+                if 'items' in field_info and 'properties' in field_info['items']:
+                    new_items_props = {}
+                    for item_field, item_info in field_info['items']['properties'].items():
+                        new_items_props[to_camel(item_field)] = item_info
+                    field_info['items']['properties'] = new_items_props
+            schema['properties'] = new_properties
+        return schema
 
 
 class GameMode(str, Enum):
@@ -40,21 +57,8 @@ class SoundSettingsUpdate(BaseModel):
     sound_enabled: int = Field(ge=0, le=1, description="音乐开关：0-关，1-开")
 
 
-class SoundSettingsResponse(BaseModel):
+class SoundSettingsResponse(CamelCaseBaseModel):
     sound_enabled: int = Field(description="音乐开关状态：0-关，1-开")
-
-
-class PointsResponse(BaseModel):
-    points: int = Field(description="玩家积分")
-
-
-class RulePopupSettingsUpdate(BaseModel):
-    client_id: str = Field(description="客户端ID（用于关联用户）")
-    rule_popup_enabled: int = Field(ge=0, le=1, description="规则显示：0-关，1-开")
-
-
-class RulePopupSettingsResponse(BaseModel):
-    rule_popup_enabled: int = Field(description="规则显示状态：0-关，1-开")
 
 
 class PointsResponse(CamelCaseBaseModel):
@@ -99,15 +103,15 @@ class JoinRoomRequest(BaseModel):
 
 class LeaveRoomRequest(BaseModel):
     room_code: str = Field(description="房间号")
-    player_id: str = Field(description="玩家ID")
+    player_id: int = Field(description="玩家ID")
 
 
 class StartGameRequest(BaseModel):
-    player_id: str = Field(description="房主ID")
+    player_id: int = Field(description="房主ID")
 
 
 class DissolveRoomRequest(BaseModel):
-    player_id: str = Field(description="房主ID")
+    player_id: int = Field(description="房主ID")
 
 
 class RoomPlayer(CamelCaseBaseModel):
@@ -163,26 +167,39 @@ class CreateGameResponse(CamelCaseBaseModel):
 
 
 class DiceRollRequest(BaseModel):
-    player_id: str = Field(description="玩家ID")
+    player_id: int = Field(description="玩家ID")
     locked_dice: List[int] = Field(default_factory=list, description="要锁定的骰子索引（0-4）")
+    
+    @field_validator('locked_dice')
+    def validate_locked_dice(cls, v):
+        for idx in v:
+            if idx < 0 or idx > 4:
+                raise ValueError(f"骰子索引必须在 0-4 之间，当前值: {idx}")
+        if len(set(v)) != len(v):
+            raise ValueError("骰子索引不能重复")
+        return v
 
 
 class DiceResetRequest(BaseModel):
-    player_id: str = Field(description="玩家ID")
+    player_id: int = Field(description="玩家ID")
 
 
 class DiceToggleRequest(BaseModel):
-    player_id: str = Field(description="玩家ID")
+    player_id: int = Field(description="玩家ID")
     dice_index: int = Field(ge=0, le=4, description="骰子索引（0-4）")
 
 
 class ScoreSubmitRequest(BaseModel):
-    player_id: str = Field(description="玩家ID")
-    category: str = Field(description="计分项名称")
+    player_id: int = Field(description="玩家ID")
+    category: Literal[
+        "ones", "twos", "threes", "fours", "fives", "sixes",
+        "threeOfAKind", "fourOfAKind", "fullHouse",
+        "smallStraight", "largeStraight", "yahtzee", "chance"
+    ] = Field(description="计分项名称")
 
 
 class QuitGameRequest(BaseModel):
-    player_id: str = Field(description="玩家ID")
+    player_id: int = Field(description="玩家ID")
 
 
 class GamePlayer(CamelCaseBaseModel):
@@ -246,7 +263,7 @@ class ScoreHistoryItem(CamelCaseBaseModel):
 
 
 class ScoreHistoryRequest(BaseModel):
-    player_id: str = Field(description="玩家ID")
+    player_id: int = Field(description="玩家ID")
     limit: int = Field(default=10, ge=1, le=50, description="查询数量（1-50）")
 
 
@@ -266,25 +283,25 @@ class LeaderboardResponse(CamelCaseBaseModel):
     leaderboard: List[LeaderboardItem] = Field(description="排行榜")
 
 
-class PlayerPanelItem(BaseModel):
-    player_id: str = Field(description="玩家ID")
+class PlayerPanelItem(CamelCaseBaseModel):
+    player_id: int = Field(description="玩家ID")
     username: str = Field(description="玩家昵称")
     avatar: str = Field(description="玩家头像URL")
     player_order: int = Field(description="操作顺序1-2")
 
 
-class InitScorePanelResponse(BaseModel):
+class InitScorePanelResponse(CamelCaseBaseModel):
     game_id: str = Field(description="对局ID")
     players: List[PlayerPanelItem] = Field(description="玩家静态信息列表")
 
 
-class LockedItem(BaseModel):
+class LockedItem(CamelCaseBaseModel):
     item_id: int = Field(description="计分项ID")
     score_value: int = Field(description="已提交的分数")
 
 
-class GetLockStatusResponse(BaseModel):
-    player_id: str = Field(description="玩家ID")
+class GetLockStatusResponse(CamelCaseBaseModel):
+    player_id: int = Field(description="玩家ID")
     locked_items: List[LockedItem] = Field(description="已锁定（已提交）的计分项列表")
     unlocked_items: List[int] = Field(description="未锁定（未提交）的计分项ID列表")
 
@@ -297,7 +314,7 @@ class SubmitScoreRequest(BaseModel):
     round_number: int = Field(description="当前回合数1-13")
 
 
-class SubmitScoreResponse(BaseModel):
+class SubmitScoreResponse(CamelCaseBaseModel):
     submit_success: bool = Field(description="是否提交成功")
     player_id: int = Field(description="玩家ID")
     score_item_id: int = Field(description="已提交计分项ID")
@@ -330,7 +347,7 @@ class SettlementResponse(CamelCaseBaseModel):
 
 
 class RematchRequest(BaseModel):
-    player_id: str = Field(description="玩家ID")
+    player_id: int = Field(description="玩家ID")
 
 
 class RematchResponse(CamelCaseBaseModel):
@@ -339,23 +356,23 @@ class RematchResponse(CamelCaseBaseModel):
 
 
 class BackToHomeRequest(BaseModel):
-    player_id: str = Field(description="玩家ID")
+    player_id: int = Field(description="玩家ID")
 
 
-class FinalRankingPlayer(BaseModel):
+class FinalRankingPlayer(CamelCaseBaseModel):
     rank: int = Field(description="名次，1开始")
-    player_id: str = Field(description="玩家ID")
+    player_id: int = Field(description="玩家ID")
     username: str = Field(description="玩家昵称")
     avatar: str = Field(description="玩家头像URL")
     total_score: int = Field(description="累计总分")
 
 
-class FinalRankingResponse(BaseModel):
+class FinalRankingResponse(CamelCaseBaseModel):
     ranking_list: List[FinalRankingPlayer] = Field(description="最终排名列表，按total_score降序")
 
 
-class ScoreSummaryResponse(BaseModel):
-    player_id: str = Field(description="玩家ID")
+class ScoreSummaryResponse(CamelCaseBaseModel):
+    player_id: int = Field(description="玩家ID")
     upper_score: int = Field(description="上层数字区得分")
     upper_bonus: int = Field(description="上层达标奖励")
     upper_subtotal: int = Field(description="上层小计")
@@ -364,7 +381,7 @@ class ScoreSummaryResponse(BaseModel):
     total_score: int = Field(description="总分")
 
 
-class GameHighlightsResponse(BaseModel):
+class GameHighlightsResponse(CamelCaseBaseModel):
     yahtzee_count: int = Field(description="快艇次数")
     highest_round_score: int = Field(description="最高单回合得分")
     upper_bonus_scored: int = Field(description="上半区奖励是否获得（0/1）")
