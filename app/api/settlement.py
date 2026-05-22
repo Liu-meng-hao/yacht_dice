@@ -139,6 +139,18 @@ async def get_final_ranking(game_id: str):
 
 
 
+@router.get(
+    "/{game_id}/score-summary",
+    summary="获取分数明细",
+    description="获取指定玩家在本局游戏中的详细分数构成",
+    responses={
+        200: {
+            "model": ApiResponseModel[ScoreSummaryResponse],
+            "description": "成功响应"
+        }
+    }
+)
+async def get_score_summary(game_id: str, player_id: int):
     db_gen = get_db()
     db = next(db_gen)
     
