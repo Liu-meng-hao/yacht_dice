@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from typing import Dict, Optional
 from sqlalchemy.orm import Session
 from app.schemas.game import (
@@ -17,35 +17,13 @@ from app.models.user_setting import UserSetting
 
 router = APIRouter(tags=["首页"])
 
-DEFAULT_CLIENT_ID = "default_user"
+
+def get_user_by_client_id(db: Session, client_id: str) -> Optional[User]:
+    return db.query(User).filter(User.client_id == client_id).first()
 
 
-def get_or_create_user(db: Session, client_id: str = DEFAULT_CLIENT_ID) -> User:
-    user = db.query(User).filter(User.client_id == client_id).first()
-    if not user:
-        user = User(
-            client_id=client_id,
-            user_type=1,
-            points=1580
-        )
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-    return user
-
-
-def get_or_create_user_setting(db: Session, user_id: int) -> UserSetting:
-    setting = db.query(UserSetting).filter(UserSetting.user_id == user_id).first()
-    if not setting:
-        setting = UserSetting(
-            user_id=user_id,
-            sound_enabled=1,
-            rule_popup_enabled=1
-        )
-        db.add(setting)
-        db.commit()
-        db.refresh(setting)
-    return setting
+def get_user_setting(db: Session, user_id: int) -> Optional[UserSetting]:
+    return db.query(UserSetting).filter(UserSetting.user_id == user_id).first()
 
 
 @router.get(
@@ -110,8 +88,10 @@ async def get_game_rules():
         }
     }
 )
-async def get_points(db: Session = Depends(get_db)):
-    user = get_or_create_user(db)
+async def get_points(client_id: str = Query(..., description="客户端ID"), db: Session = Depends(get_db)):
+    user = get_user_by_client_id(db, client_id)
+    if not user:
+        return ApiResponse.error(msg="用户不存在", code=404)
     return ApiResponse.success(
         data=PointsResponse(points=user.points),
         msg="获取成功"
@@ -129,9 +109,13 @@ async def get_points(db: Session = Depends(get_db)):
         }
     }
 )
-async def get_sound_settings(db: Session = Depends(get_db)):
-    user = get_or_create_user(db)
-    setting = get_or_create_user_setting(db, user.id)
+async def get_sound_settings(client_id: str = Query(..., description="客户端ID"), db: Session = Depends(get_db)):
+    user = get_user_by_client_id(db, client_id)
+    if not user:
+        return ApiResponse.error(msg="用户不存在", code=404)
+    setting = get_user_setting(db, user.id)
+    if not setting:
+        return ApiResponse.error(msg="用户设置不存在", code=404)
     return ApiResponse.success(
         data=SoundSettingsResponse(sound_enabled=setting.sound_enabled),
         msg="获取成功"
@@ -150,8 +134,12 @@ async def get_sound_settings(db: Session = Depends(get_db)):
     }
 )
 async def update_sound_settings(request: SoundSettingsUpdate, db: Session = Depends(get_db)):
-    user = get_or_create_user(db)
-    setting = get_or_create_user_setting(db, user.id)
+    user = get_user_by_client_id(db, request.client_id)
+    if not user:
+        return ApiResponse.error(msg="用户不存在", code=404)
+    setting = get_user_setting(db, user.id)
+    if not setting:
+        return ApiResponse.error(msg="用户设置不存在", code=404)
     setting.sound_enabled = request.sound_enabled
     db.commit()
     db.refresh(setting)
@@ -172,9 +160,13 @@ async def update_sound_settings(request: SoundSettingsUpdate, db: Session = Depe
         }
     }
 )
-async def get_rule_popup_settings(db: Session = Depends(get_db)):
-    user = get_or_create_user(db)
-    setting = get_or_create_user_setting(db, user.id)
+async def get_rule_popup_settings(client_id: str = Query(..., description="客户端ID"), db: Session = Depends(get_db)):
+    user = get_user_by_client_id(db, client_id)
+    if not user:
+        return ApiResponse.error(msg="用户不存在", code=404)
+    setting = get_user_setting(db, user.id)
+    if not setting:
+        return ApiResponse.error(msg="用户设置不存在", code=404)
     return ApiResponse.success(
         data=RulePopupSettingsResponse(rule_popup_enabled=setting.rule_popup_enabled),
         msg="获取成功"
@@ -193,8 +185,12 @@ async def get_rule_popup_settings(db: Session = Depends(get_db)):
     }
 )
 async def update_rule_popup_settings(request: RulePopupSettingsUpdate, db: Session = Depends(get_db)):
-    user = get_or_create_user(db)
-    setting = get_or_create_user_setting(db, user.id)
+    user = get_user_by_client_id(db, request.client_id)
+    if not user:
+        return ApiResponse.error(msg="用户不存在", code=404)
+    setting = get_user_setting(db, user.id)
+    if not setting:
+        return ApiResponse.error(msg="用户设置不存在", code=404)
     setting.rule_popup_enabled = request.rule_popup_enabled
     db.commit()
     db.refresh(setting)

@@ -27,6 +27,7 @@ class GameStatus(str, Enum):
 # ========================================
 
 class SoundSettingsUpdate(BaseModel):
+    client_id: str = Field(description="客户端ID（用于关联用户）")
     sound_enabled: int = Field(ge=0, le=1, description="音乐开关：0-关，1-开")
 
 
@@ -39,6 +40,7 @@ class PointsResponse(BaseModel):
 
 
 class RulePopupSettingsUpdate(BaseModel):
+    client_id: str = Field(description="客户端ID（用于关联用户）")
     rule_popup_enabled: int = Field(ge=0, le=1, description="规则显示：0-关，1-开")
 
 
@@ -61,6 +63,7 @@ class GameRulesResponse(BaseModel):
 # ========================================
 
 class CreateRoomRequest(BaseModel):
+    client_id: str = Field(description="客户端ID（用于关联用户）")
     player_name: str = Field(description="玩家名称")
     room_name: Optional[str] = Field(default=None, description="房间名称（可选）")
     max_players: int = Field(default=4, ge=2, le=4, description="最大玩家数（2-4）")
@@ -68,6 +71,7 @@ class CreateRoomRequest(BaseModel):
 
 
 class JoinRoomRequest(BaseModel):
+    client_id: str = Field(description="客户端ID（用于关联用户）")
     room_code: str = Field(description="房间号")
     player_name: str = Field(description="玩家名称")
 
@@ -89,6 +93,7 @@ class RoomPlayer(BaseModel):
     player_id: str = Field(description="玩家ID")
     name: str = Field(description="玩家名称")
     is_host: bool = Field(description="是否为房主")
+    points: int = Field(default=0, description="玩家积分")
 
 
 class RoomResponse(BaseModel):
