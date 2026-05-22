@@ -35,6 +35,7 @@ router = APIRouter(tags=["游戏"])
     }
 )
 async def create_game(request: CreateGameRequest):
+    game_data = None
     try:
         game_data = GameManager.create_game(request.game_mode.value, request.player_names)
         game_dict = game_data.to_dict()
@@ -212,7 +213,7 @@ async def submit_score(game_id: str, request: ScoreSubmitRequest):
         return ApiResponse.error(msg="游戏不存在", code=404)
     try:
         user_id = int(request.player_id)
-        score = GameManager.submit_score(game_data, user_id, request.category)
+        result = GameManager.submit_score(game_data, user_id, request.category)
         game_dict = game_data.to_dict()
         
         next_player = game_dict["current_player"] if game_dict["status"] != "finished" else None
@@ -222,7 +223,11 @@ async def submit_score(game_id: str, request: ScoreSubmitRequest):
         return ApiResponse.success(
             data=ScoreSubmitResponse(
                 category=request.category,
-                score=score,
+                score=result["score"],
+                upper_score=result["upper_score"],
+                lower_score=result["lower_score"],
+                bonus_score=result["bonus_score"],
+                total_score=result["total_score"],
                 game_state=GameStateResponse(
                     game_id=game_dict["game_id"],
                     game_mode=GameMode(game_dict["game_mode"]),

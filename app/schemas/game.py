@@ -43,6 +43,18 @@ class SoundSettingsResponse(CamelCaseBaseModel):
     sound_enabled: bool = Field(description="音效开关状态")
 
 
+class PointsResponse(CamelCaseBaseModel):
+    points: int = Field(description="玩家积分")
+
+
+class RulePopupSettingsUpdate(BaseModel):
+    rule_popup_enabled: int = Field(ge=0, le=1, description="规则弹窗开关：0-关，1-开")
+
+
+class RulePopupSettingsResponse(CamelCaseBaseModel):
+    rule_popup_enabled: bool = Field(description="规则弹窗开关状态")
+
+
 class RuleCategory(BaseModel):
     name: str = Field(description="计分项名称")
     description: str = Field(description="计分项说明")
@@ -190,6 +202,10 @@ class DiceToggleResponse(CamelCaseBaseModel):
 class ScoreSubmitResponse(CamelCaseBaseModel):
     category: str = Field(description="计分项")
     score: int = Field(description="得分")
+    upper_score: int = Field(description="上半区分数")
+    lower_score: int = Field(description="下半区分数")
+    bonus_score: int = Field(description="奖励分数")
+    total_score: int = Field(description="总分数")
     game_state: GameStateResponse = Field(description="游戏状态")
     next_player: Optional[str] = Field(description="下一玩家ID")
     is_game_finished: bool = Field(description="游戏是否结束")

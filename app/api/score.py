@@ -117,155 +117,158 @@ async def get_lock_status(game_id: str, player_id: str):
     )
 
 
-@router.post(
-    "/game/{game_id}/submit-score",
-    summary="提交分数",
-    description="玩家提交计分项得分",
-    responses={
-        200: {
-            "model": ApiResponseModel[SubmitScoreResponse],
-            "description": "成功响应"
-        }
-    }
-)
-async def submit_score(game_id: str, request: SubmitScoreRequest):
-    game_data = GameManager.get_game(game_id)
-    if not game_data:
-        return ApiResponse.error(msg="游戏不存在", code=404)
-    
-    db = game_data.db
-    db_game = game_data.db_game
-    
-    player_id = request.player_id
-    score_item_id = request.score_item_id
-    score_value = request.score_value
-    dice_data = request.dice_data
-    round_number = request.round_number
-    
-    game_player = db.query(GamePlayer).filter(
-        GamePlayer.game_id == db_game.id,
-        GamePlayer.user_id == player_id
-    ).first()
-    
-    if not game_player:
-        game_data.close()
-        return ApiResponse.error(msg="玩家不存在", code=404)
-    
-    if score_item_id == 7:
-        game_data.close()
-        return ApiResponse.error(msg="奖励分不可直接提交", code=400)
-    
-    existing_detail = db.query(PlayerScoreDetail).filter(
-        PlayerScoreDetail.player_id == player_id,
-        PlayerScoreDetail.score_item_id == score_item_id
-    ).first()
-    
-    if existing_detail:
-        game_data.close()
-        return ApiResponse.error(msg="该计分项已提交", code=400)
-    
-    try:
-        new_detail = PlayerScoreDetail(
-            game_id=db_game.id,
-            player_id=player_id,
-            score_item_id=score_item_id,
-            round_number=round_number,
-            score_value=score_value
-        )
-        db.add(new_detail)
-        
-        upper_items = [1, 2, 3, 4, 5, 6]
-        lower_items = [8, 9, 10, 11, 12, 13, 14]
-        
-        upper_score = db.query(db.func.sum(PlayerScoreDetail.score_value)).filter(
-            PlayerScoreDetail.game_id == db_game.id,
-            PlayerScoreDetail.player_id == player_id,
-            PlayerScoreDetail.score_item_id.in_(upper_items)
-        ).scalar() or 0
-        
-        lower_score = db.query(db.func.sum(PlayerScoreDetail.score_value)).filter(
-            PlayerScoreDetail.game_id == db_game.id,
-            PlayerScoreDetail.player_id == player_id,
-            PlayerScoreDetail.score_item_id.in_(lower_items)
-        ).scalar() or 0
-        
-        bonus_score = 35 if upper_score >= 63 else 0
-        total_score = upper_score + lower_score + bonus_score
-        
-        game_player.upper_score = upper_score
-        game_player.lower_score = lower_score
-        game_player.bonus_score = bonus_score
-        game_player.total_score = total_score
-        
-        all_players = db.query(GamePlayer).filter(GamePlayer.game_id == db_game.id).all()
-        all_submitted = True
-        
-        for p in all_players:
-            submitted_count = db.query(PlayerScoreDetail).filter(
-                PlayerScoreDetail.player_id == p.user_id
-            ).count()
-            if submitted_count < 13:
-                all_submitted = False
-                break
-        
-        if all_submitted:
-            db_game.game_status = 3
-            db.query(GameRound).filter(
-                GameRound.game_id == db_game.id,
-                GameRound.round_number == round_number
-            ).update({"round_status": 3, "end_time": func.now()})
-            next_player_id = None
-        else:
-            current_player_idx = None
-            for i, p in enumerate(all_players):
-                if p.user_id == player_id:
-                    current_player_idx = i
-                    break
-            
-            next_player_idx = (current_player_idx + 1) % len(all_players)
-            next_player = all_players[next_player_idx]
-            
-            db.query(GameRound).filter(
-                GameRound.game_id == db_game.id,
-                GameRound.round_number == round_number
-            ).update({"round_status": 3, "end_time": func.now()})
-            
-            new_round = GameRound(
-                game_id=db_game.id,
-                round_number=round_number + 1,
-                current_player_id=next_player.user_id,
-                dice_data=None,
-                reroll_count=0,
-                round_status=2,
-                start_time=func.now()
-            )
-            db.add(new_round)
-            next_player_id = next_player.user_id
-        
-        db.commit()
-        
-        game_data.close()
-        
-        return ApiResponse.success(
-            data=SubmitScoreResponse(
-                submit_success=True,
-                player_id=player_id,
-                score_item_id=score_item_id,
-                score_value=score_value,
-                total_score=total_score,
-                upper_score=upper_score,
-                lower_score=lower_score,
-                bonus_score=bonus_score,
-                game_status=db_game.game_status,
-                next_player_id=next_player_id
-            ),
-            msg="提交成功"
-        )
-    
-    except Exception as e:
-        db.rollback()
-        game_data.close()
-        return ApiResponse.error(msg=f"提交失败: {str(e)}", code=500)
+
+# @router.post(
+#     "/game/{game_id}/submit-score",
+#     summary="提交分数（已弃用）",
+#     description="玩家提交计分项得分，已合并到 /{game_id}/score 接口",
+#     deprecated=True,
+#     responses={
+#         200: {
+#             "model": ApiResponseModel[SubmitScoreResponse],
+#             "description": "成功响应"
+#         }
+#     }
+# )
+# async def submit_score(game_id: str, request: SubmitScoreRequest):
+#     game_data = GameManager.get_game(game_id)
+#     if not game_data:
+#         return ApiResponse.error(msg="游戏不存在", code=404)
+#     
+#     db = game_data.db
+#     db_game = game_data.db_game
+#     
+#     player_id = request.player_id
+#     score_item_id = request.score_item_id
+#     score_value = request.score_value
+#     dice_data = request.dice_data
+#     round_number = request.round_number
+#     
+#     game_player = db.query(GamePlayer).filter(
+#         GamePlayer.game_id == db_game.id,
+#         GamePlayer.user_id == player_id
+#     ).first()
+#     
+#     if not game_player:
+#         game_data.close()
+#         return ApiResponse.error(msg="玩家不存在", code=404)
+#     
+#     if score_item_id == 7:
+#         game_data.close()
+#         return ApiResponse.error(msg="奖励分不可直接提交", code=400)
+#     
+#     existing_detail = db.query(PlayerScoreDetail).filter(
+#         PlayerScoreDetail.player_id == player_id,
+#         PlayerScoreDetail.score_item_id == score_item_id
+#     ).first()
+#     
+#     if existing_detail:
+#         game_data.close()
+#         return ApiResponse.error(msg="该计分项已提交", code=400)
+#     
+#     try:
+#         new_detail = PlayerScoreDetail(
+#             game_id=db_game.id,
+#             player_id=player_id,
+#             score_item_id=score_item_id,
+#             round_number=round_number,
+#             score_value=score_value
+#         )
+#         db.add(new_detail)
+#         
+#         upper_items = [1, 2, 3, 4, 5, 6]
+#         lower_items = [8, 9, 10, 11, 12, 13, 14]
+#         
+#         upper_score = db.query(db.func.sum(PlayerScoreDetail.score_value)).filter(
+#             PlayerScoreDetail.game_id == db_game.id,
+#             PlayerScoreDetail.player_id == player_id,
+#             PlayerScoreDetail.score_item_id.in_(upper_items)
+#         ).scalar() or 0
+#         
+#         lower_score = db.query(db.func.sum(PlayerScoreDetail.score_value)).filter(
+#             PlayerScoreDetail.game_id == db_game.id,
+#             PlayerScoreDetail.player_id == player_id,
+#             PlayerScoreDetail.score_item_id.in_(lower_items)
+#         ).scalar() or 0
+#         
+#         bonus_score = 35 if upper_score >= 63 else 0
+#         total_score = upper_score + lower_score + bonus_score
+#         
+#         game_player.upper_score = upper_score
+#         game_player.lower_score = lower_score
+#         game_player.bonus_score = bonus_score
+#         game_player.total_score = total_score
+#         
+#         all_players = db.query(GamePlayer).filter(GamePlayer.game_id == db_game.id).all()
+#         all_submitted = True
+#         
+#         for p in all_players:
+#             submitted_count = db.query(PlayerScoreDetail).filter(
+#                 PlayerScoreDetail.player_id == p.user_id
+#             ).count()
+#             if submitted_count < 13:
+#                 all_submitted = False
+#                 break
+#         
+#         if all_submitted:
+#             db_game.game_status = 3
+#             db.query(GameRound).filter(
+#                 GameRound.game_id == db_game.id,
+#                 GameRound.round_number == round_number
+#             ).update({"round_status": 3, "end_time": func.now()})
+#             next_player_id = None
+#         else:
+#             current_player_idx = None
+#             for i, p in enumerate(all_players):
+#                 if p.user_id == player_id:
+#                     current_player_idx = i
+#                     break
+#             
+#             next_player_idx = (current_player_idx + 1) % len(all_players)
+#             next_player = all_players[next_player_idx]
+#             
+#             db.query(GameRound).filter(
+#                 GameRound.game_id == db_game.id,
+#                 GameRound.round_number == round_number
+#             ).update({"round_status": 3, "end_time": func.now()})
+#             
+#             new_round = GameRound(
+#                 game_id=db_game.id,
+#                 round_number=round_number + 1,
+#                 current_player_id=next_player.user_id,
+#                 dice_data=None,
+#                 reroll_count=0,
+#                 round_status=2,
+#                 start_time=func.now()
+#             )
+#             db.add(new_round)
+#             next_player_id = next_player.user_id
+#         
+#         db.commit()
+#         
+#         game_data.close()
+#         
+#         return ApiResponse.success(
+#             data=SubmitScoreResponse(
+#                 submit_success=True,
+#                 player_id=player_id,
+#                 score_item_id=score_item_id,
+#                 score_value=score_value,
+#                 total_score=total_score,
+#                 upper_score=upper_score,
+#                 lower_score=lower_score,
+#                 bonus_score=bonus_score,
+#                 game_status=db_game.game_status,
+#                 next_player_id=next_player_id
+#             ),
+#             msg="提交成功"
+#         )
+#     
+#     except Exception as e:
+#         db.rollback()
+#         game_data.close()
+#         return ApiResponse.error(msg=f"提交失败: {str(e)}", code=500)
+
 
 
 @router.get(

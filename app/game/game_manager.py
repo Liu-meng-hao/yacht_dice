@@ -273,8 +273,8 @@ class GameManager:
         return new_dice
     
     @classmethod
-    def submit_score(cls, game_data: GameData, user_id: int, category: str) -> int:
-        """提交分数"""
+    def submit_score(cls, game_data: GameData, user_id: int, category: str) -> dict:
+        """提交分数，返回详细分数信息"""
         current_player = game_data.get_current_player()
         if not current_player or current_player.user_id != user_id:
             raise Exception("Not your turn")
@@ -315,7 +315,13 @@ class GameManager:
         cls._next_turn(game_data)
         
         game_data.commit()
-        return score
+        return {
+            "score": score,
+            "upper_score": player.upper_score,
+            "lower_score": player.lower_score,
+            "bonus_score": player.bonus_score,
+            "total_score": player.total_score
+        }
     
     @classmethod
     def _next_turn(cls, game_data: GameData):
