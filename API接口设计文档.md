@@ -486,6 +486,10 @@
   "data": {
     "category": "ones",
     "score": 3,
+    "upper_score": 15,
+    "lower_score": 0,
+    "bonus_score": 0,
+    "total_score": 15,
     "game_state": { ... },
     "next_player": "yyy",
     "is_game_finished": false
@@ -788,6 +792,29 @@ app/api/
 1. 确认接口设计是否合理
 2. 如需调整，修改本文档
 3. 确认后，再开始修改代码
+
+---
+
+## 五、变更记录
+
+### 2026-05-21 接口合并
+
+**变更内容：**
+- **合并** `game.py` 中的 `POST /{game_id}/score` 和 `score.py` 中的 `POST /game/{game_id}/submit-score` 两个接口
+- **增强** `ScoreSubmitResponse` 响应模型，新增 `upper_score`、`lower_score`、`bonus_score`、`total_score` 字段
+- **弃用** `score.py` 中的 `POST /game/{game_id}/submit-score` 接口，已注释并标记为 deprecated
+- **统一** 提交分数功能，只保留 `game.py` 中的 `POST /{game_id}/score` 接口
+
+**变更原因：**
+- 两个接口功能重叠，容易混淆
+- `game.py` 中的接口有完整的回合验证，更符合游戏逻辑
+- `score.py` 中的接口缺少回合验证，可能被误用
+
+**受影响文件：**
+- `app/schemas/game.py` - 增强响应模型
+- `app/game/game_manager.py` - 增强 submit_score 方法返回值
+- `app/api/game.py` - 更新接口实现
+- `app/api/score.py` - 注释弃用接口
 
 ---
 

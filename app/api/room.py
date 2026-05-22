@@ -193,12 +193,9 @@ async def leave_room(request: LeaveRoomRequest, db: Session = Depends(get_db)):
         if not room:
             return ApiResponse.error(msg="房间不存在", code=404)
 
-        if not request.player_id.isdigit():
-            return ApiResponse.error(msg="player_id必须是数字", code=400)
-            
         player = db.query(RoomPlayer).filter(
             RoomPlayer.room_id == room.id,
-            RoomPlayer.user_id == int(request.player_id)
+            RoomPlayer.user_id == request.player_id
         ).first()
 
         if not player:

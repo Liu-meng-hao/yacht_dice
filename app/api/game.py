@@ -30,11 +30,13 @@ router = APIRouter(tags=["游戏"])
     description="创建新游戏，支持本地多人、人机对战模式",
     responses={
         200: {
+            "model": ApiResponseModel[CreateGameResponse],
             "description": "成功响应"
         }
     }
 )
 async def create_game(request: CreateGameRequest):
+    game_data = None
     try:
         game_data = GameManager.create_game(request.game_mode.value, request.player_names)
         game_dict = game_data.to_dict()
@@ -120,8 +122,7 @@ async def roll_dice(game_id: str, request: DiceRollRequest):
     if not game_data:
         return ApiResponse.error(msg="游戏不存在", code=404)
     try:
-        user_id = int(request.player_id)
-        dice = GameManager.roll_dice(game_data, user_id, request.locked_dice)
+        dice = GameManager.roll_dice(game_data, request.player_id, request.locked_dice)
         game_dict = game_data.to_dict()
         game_data.close()
         
@@ -211,8 +212,7 @@ async def submit_score(game_id: str, request: ScoreSubmitRequest):
     if not game_data:
         return ApiResponse.error(msg="游戏不存在", code=404)
     try:
-        user_id = int(request.player_id)
-        score = GameManager.submit_score(game_data, user_id, request.category)
+        result = GameManager.submit_score(game_data, request.player_id, request.category)
         game_dict = game_data.to_dict()
         
         next_player = game_dict["current_player"] if game_dict["status"] != "finished" else None
@@ -222,7 +222,11 @@ async def submit_score(game_id: str, request: ScoreSubmitRequest):
         return ApiResponse.success(
             data=ScoreSubmitResponse(
                 category=request.category,
-                score=score,
+                score=result["score"],
+                upper_score=result["upper_score"],
+                lower_score=result["lower_score"],
+                bonus_score=result["bonus_score"],
+                total_score=result["total_score"],
                 game_state=GameStateResponse(
                     game_id=game_dict["game_id"],
                     game_mode=GameMode(game_dict["game_mode"]),
