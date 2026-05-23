@@ -1,4 +1,4 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter
 from typing import Optional
 import re
 from app.schemas.game import (
@@ -18,7 +18,6 @@ from app.schemas.game import (
     ScoreSubmitResponse
 )
 from app.game.game_manager import GameManager
-from app.websocket.manager import manager
 from app.core.response import ApiResponse, ApiResponseModel
 
 router = APIRouter(tags=["游戏"])
@@ -38,7 +37,9 @@ router = APIRouter(tags=["游戏"])
 async def create_game(request: CreateGameRequest):
     game_data = None
     try:
-        game_data = GameManager.create_game(request.game_mode.value, request.player_names)
+        # 将玩家名称列表转换为字典列表
+        players = [{"player_name": name} for name in request.player_names]
+        game_data = GameManager.create_game(request.game_mode.value, players)
         game_dict = game_data.to_dict()
         game_data.close()
         
@@ -263,17 +264,3 @@ async def submit_score(game_id: str, request: ScoreSubmitRequest):
 async def quit_game(game_id: str, request: QuitGameRequest):
     GameManager.remove_game(game_id)
     return ApiResponse.success(msg="已退出游戏")
-
-
-@router.websocket("/ws/{game_id}/{player_id}")
-async def websocket_endpoint(websocket: WebSocket, game_id: str, player_id: str):
-    """WebSocket 游戏实时通信
-    用于多人游戏状态实时同步
-    """
-    await manager.connect(game_id, player_id, websocket)
-    try:
-        while True:
-            data = await websocket.receive_text()
-            await manager.broadcast(game_id, {"player_id": player_id, "data": data})
-    except WebSocketDisconnect:
-        manager.disconnect(game_id, player_id, websocket)

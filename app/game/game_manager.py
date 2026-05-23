@@ -143,31 +143,71 @@ class GameData:
 class GameManager:
     
     @classmethod
-    def create_game(cls, game_mode: str, player_names: List[str]) -> GameData:
-        """创建新游戏"""
+    def create_game(cls, game_mode: str, players: List[dict]) -> GameData:
+        """创建新游戏
+        
+        Args:
+            game_mode: 游戏模式 (local/ai/online)
+            players: 玩家列表
+                - 在线模式: [{"user_id": int, "player_name": str, "is_ai": bool}, ...]
+                - 本地/AI模式: [{"player_name": str, "is_ai": bool}, ...]
+        """
         db = SessionLocal()
         try:
             mode_map = {"local": 1, "ai": 2, "online": 3}
             game_mode_db = mode_map.get(game_mode, 1)
             
             users = []
-            for i, name in enumerate(player_names):
-                is_ai = (game_mode == "ai" and i > 0)
-                client_id = f"game-{datetime.now().strftime('%Y%m%d%H%M%S')}-{i}"
-                
-                sanitized_name = sanitize_nickname(name)
-                if not sanitized_name:
-                    sanitized_name = f"Player{i + 1}"
-                
-                db_user = User(
-                    client_id=client_id,
-                    nickname=sanitized_name,
-                    user_type=2 if is_ai else 1,
-                    ai_difficulty=2 if is_ai else None
-                )
-                db.add(db_user)
-                db.flush()
-                users.append((db_user, is_ai))
+            
+            if game_mode == "online":
+                # 在线模式：使用房间中已有的用户
+                for i, player in enumerate(players):
+                    user_id = player.get("user_id")
+                    player_name = player.get("player_name", f"Player{i + 1}")
+                    is_ai = player.get("is_ai", False)
+                    
+                    if user_id:
+                        # 查询已存在的用户
+                        db_user = db.query(User).filter(User.id == user_id).first()
+                        if db_user:
+                            users.append((db_user, is_ai))
+                            continue
+                    
+                    # 如果没有找到用户，创建新用户（备用方案）
+                    client_id = f"game-{datetime.now().strftime('%Y%m%d%H%M%S')}-{i}"
+                    sanitized_name = sanitize_nickname(player_name)
+                    if not sanitized_name:
+                        sanitized_name = f"Player{i + 1}"
+                    
+                    db_user = User(
+                        client_id=client_id,
+                        nickname=sanitized_name,
+                        user_type=2 if is_ai else 1,
+                        ai_difficulty=2 if is_ai else None
+                    )
+                    db.add(db_user)
+                    db.flush()
+                    users.append((db_user, is_ai))
+            else:
+                # 本地/AI模式：创建新用户
+                for i, player in enumerate(players):
+                    name = player.get("player_name", f"Player{i + 1}")
+                    is_ai = player.get("is_ai", (game_mode == "ai" and i > 0))
+                    client_id = f"game-{datetime.now().strftime('%Y%m%d%H%M%S')}-{i}"
+                    
+                    sanitized_name = sanitize_nickname(name)
+                    if not sanitized_name:
+                        sanitized_name = f"Player{i + 1}"
+                    
+                    db_user = User(
+                        client_id=client_id,
+                        nickname=sanitized_name,
+                        user_type=2 if is_ai else 1,
+                        ai_difficulty=2 if is_ai else None
+                    )
+                    db.add(db_user)
+                    db.flush()
+                    users.append((db_user, is_ai))
             
             db_game = GameModel(
                 game_mode=game_mode_db,

@@ -42,11 +42,12 @@ async def rematch(game_id: str, request: RematchRequest):
         return ApiResponse.error(msg="游戏不存在", code=404)
     
     game_dict = game_data.to_dict()
-    player_names = [p["name"] for p in game_dict["players"]]
+    # 将玩家信息转换为字典列表
+    players = [{"player_name": p["name"], "is_ai": p["is_ai"]} for p in game_dict["players"]]
     game_mode = game_dict["game_mode"]
     game_data.close()
     
-    new_game_data = GameManager.create_game(game_mode, player_names)
+    new_game_data = GameManager.create_game(game_mode, players)
     GameManager.start_game(new_game_data)
     new_game_dict = new_game_data.to_dict()
     
@@ -105,15 +106,15 @@ async def back_to_home(game_id: str, request: BackToHomeRequest):
 async def get_final_ranking(game_id: str):
     db_gen = get_db()
     db = next(db_gen)
-    
+
     try:
         game_players = db.query(GamePlayerModel).filter(
             GamePlayerModel.game_id == int(game_id)
         ).order_by(GamePlayerModel.total_score.desc()).all()
-        
+
         if not game_players:
             return ApiResponse.error(msg="游戏不存在", code=404)
-        
+
         ranking_list = []
         for rank, gp in enumerate(game_players, 1):
             user = db.query(User).filter(User.id == gp.user_id).first()
@@ -124,7 +125,7 @@ async def get_final_ranking(game_id: str):
                 avatar=user.avatar if user and user.avatar else "",
                 total_score=gp.total_score
             ))
-        
+
         return ApiResponse.success(
             data=FinalRankingResponse(ranking_list=ranking_list),
             msg="成功"
@@ -138,7 +139,18 @@ async def get_final_ranking(game_id: str):
             pass
 
 
-
+@router.get(
+    "/{game_id}/score-summary",
+    summary="获取分数明细",
+    description="获取指定玩家的分数明细，包括上半场分数、下半场分数和 Yahtzee 奖励",
+    responses={
+        200: {
+            "model": ApiResponseModel[ScoreSummaryResponse],
+            "description": "成功响应"
+        }
+    }
+)
+async def get_score_summary(game_id: str, player_id: int):
     db_gen = get_db()
     db = next(db_gen)
     
