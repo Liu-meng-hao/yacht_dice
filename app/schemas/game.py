@@ -52,6 +52,16 @@ class GameStatus(str, Enum):
 # 首页模块 Schemas
 # ========================================
 
+class RegisterRequest(BaseModel):
+    client_id: str = Field(description="客户端ID（唯一标识，由客户端生成）")
+    nickname: str = Field(description="用户昵称")
+
+class RegisterResponse(CamelCaseBaseModel):
+    user_id: int = Field(description="用户ID")
+    client_id: str = Field(description="客户端ID")
+    nickname: str = Field(description="用户昵称")
+    points: int = Field(description="初始积分")
+
 class SoundSettingsUpdate(BaseModel):
     client_id: str = Field(description="客户端ID（用于关联用户）")
     sound_enabled: int = Field(ge=0, le=1, description="音乐开关：0-关，1-开")

@@ -146,6 +146,14 @@ async def join_room(request: JoinRoomRequest, db: Session = Depends(get_db)):
     if room.current_player_count >= room.max_player_count:
         return ApiResponse.error(msg="房间已满", code=400)
 
+    existing_player = db.query(RoomPlayer).filter(
+        RoomPlayer.room_id == room.id,
+        RoomPlayer.user_id == user.id
+    ).first()
+
+    if existing_player:
+        return ApiResponse.error(msg="你已在房间中", code=400)
+
     player = RoomPlayer(
         room_id=room.id,
         user_id=user.id,
@@ -302,7 +310,7 @@ async def start_game(room_code: str, request: StartGameRequest, db: Session = De
     if not room:
         return ApiResponse.error(msg="房间不存在", code=404)
 
-    if room.host_id != request.player_id:
+    if room.host_id != str(request.player_id):
         return ApiResponse.error(msg="只有房主才能开始游戏", code=403)
 
     if room.room_status != 1:
@@ -311,8 +319,16 @@ async def start_game(room_code: str, request: StartGameRequest, db: Session = De
     if room.current_player_count < 2:
         return ApiResponse.error(msg="至少需要2名玩家", code=400)
 
-    player_names = [p.player_name for p in room.players]
-    game_data = GameManager.create_game("online", player_names)
+    # 构建玩家列表（包含用户ID，以便复用已存在的用户）
+    players = []
+    for p in room.players:
+        players.append({
+            "user_id": p.user_id,
+            "player_name": p.player_name,
+            "is_ai": False
+        })
+    
+    game_data = GameManager.create_game("online", players)
     GameManager.start_game(game_data)
     game_dict = game_data.to_dict()
     game_id = game_dict["game_id"]
