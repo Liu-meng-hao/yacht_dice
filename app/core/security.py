@@ -4,16 +4,19 @@ import re
 import html
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+from fastapi import HTTPException
 from app.core.config import settings
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """验证密码"""
     return pwd_context.verify(plain_password, hashed_password)
 
 
 def get_password_hash(password: str) -> str:
+    """对密码进行哈希处理"""
     return pwd_context.hash(password)
 
 
@@ -62,3 +65,12 @@ def sanitize_nickname(nickname: Optional[str]) -> Optional[str]:
         nickname = nickname[:50]
     
     return nickname if nickname else None
+
+
+def verify_token(token: str) -> dict:
+    """验证 Token 并返回 payload"""
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        return payload
+    except JWTError:
+        raise HTTPException(status_code=401, detail="无效的令牌")
