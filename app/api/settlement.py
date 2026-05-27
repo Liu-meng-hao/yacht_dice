@@ -139,10 +139,11 @@ async def get_final_ranking(game_id: str):
             pass
 
 
+
 @router.get(
     "/{game_id}/score-summary",
     summary="获取分数明细",
-    description="获取指定玩家的分数明细，包括上半场分数、下半场分数和 Yahtzee 奖励",
+    description="获取指定玩家在本局游戏中的详细分数构成",
     responses={
         200: {
             "model": ApiResponseModel[ScoreSummaryResponse],
