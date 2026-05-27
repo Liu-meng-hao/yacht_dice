@@ -177,30 +177,30 @@ class CreateGameResponse(CamelCaseBaseModel):
 
 
 class DiceRollRequest(BaseModel):
-    player_id: int = Field(description="玩家ID")
-    locked_dice: List[int] = Field(default_factory=list, description="要锁定的骰子索引（0-4）")
+    player_id: str = Field(description="玩家ID")
+    locked_dice: List[bool] = Field(default_factory=lambda: [False, False, False, False, False], description="骰子锁定状态列表（5个布尔值）")
     
     @field_validator('locked_dice')
     def validate_locked_dice(cls, v):
-        for idx in v:
-            if idx < 0 or idx > 4:
-                raise ValueError(f"骰子索引必须在 0-4 之间，当前值: {idx}")
-        if len(set(v)) != len(v):
-            raise ValueError("骰子索引不能重复")
+        if len(v) != 5:
+            raise ValueError(f"locked_dice 必须包含5个元素，当前长度: {len(v)}")
+        for val in v:
+            if not isinstance(val, bool):
+                raise ValueError(f"locked_dice 元素必须是布尔值，当前值: {val}")
         return v
 
 
 class DiceResetRequest(BaseModel):
-    player_id: int = Field(description="玩家ID")
+    player_id: str = Field(description="玩家ID")
 
 
 class DiceToggleRequest(BaseModel):
-    player_id: int = Field(description="玩家ID")
+    player_id: str = Field(description="玩家ID")
     dice_index: int = Field(ge=0, le=4, description="骰子索引（0-4）")
 
 
 class ScoreSubmitRequest(BaseModel):
-    player_id: int = Field(description="玩家ID")
+    player_id: str = Field(description="玩家ID")
     category: Literal[
         "ones", "twos", "threes", "fours", "fives", "sixes",
         "threeOfAKind", "fourOfAKind", "fullHouse",
@@ -209,7 +209,7 @@ class ScoreSubmitRequest(BaseModel):
 
 
 class QuitGameRequest(BaseModel):
-    player_id: int = Field(description="玩家ID")
+    player_id: str = Field(description="玩家ID")
 
 
 class GamePlayer(CamelCaseBaseModel):

@@ -285,10 +285,10 @@ class GameManager:
         game_data.commit()
     
     @classmethod
-    def roll_dice(cls, game_data: GameData, user_id: int, locked_indices: List[int] = None) -> List[int]:
+    def roll_dice(cls, game_data: GameData, user_id: str, locked_indices: List[int] = None) -> List[int]:
         """掷骰子"""
         current_player = game_data.get_current_player()
-        if not current_player or current_player.user_id != user_id:
+        if not current_player or str(current_player.user_id) != user_id:
             raise Exception("Not your turn")
         
         if game_data.db_round.reroll_count <= 0:
@@ -313,10 +313,10 @@ class GameManager:
         return new_dice
     
     @classmethod
-    def submit_score(cls, game_data: GameData, user_id: int, category: str) -> dict:
+    def submit_score(cls, game_data: GameData, user_id: str, category: str) -> dict:
         """提交分数，返回详细分数信息"""
         current_player = game_data.get_current_player()
-        if not current_player or current_player.user_id != user_id:
+        if not current_player or str(current_player.user_id) != user_id:
             raise Exception("Not your turn")
         
         score_item = game_data.score_items.get(category)
