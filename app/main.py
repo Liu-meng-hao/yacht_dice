@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.api import health, home, room, game, websocket, score, settlement
+from app.api import health, home, room, game, websocket, score, settlement, auth
 
 
 app = FastAPI(
@@ -25,6 +25,7 @@ app.include_router(game.router, prefix=f"{settings.API_V1_STR}/game", tags=["游
 app.include_router(websocket.router, prefix=f"{settings.API_V1_STR}/game", tags=["实时通信"])
 app.include_router(score.router, prefix=f"{settings.API_V1_STR}/score", tags=["计分"])
 app.include_router(settlement.router, prefix=f"{settings.API_V1_STR}/settlement", tags=["结算"])
+app.include_router(auth.router, prefix=f"{settings.API_V1_STR}/auth", tags=["认证"])
 
 
 @app.get("/")

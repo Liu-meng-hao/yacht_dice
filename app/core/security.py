@@ -4,6 +4,7 @@ import re
 import html
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+from fastapi import HTTPException
 from app.core.config import settings
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -62,3 +63,12 @@ def sanitize_nickname(nickname: Optional[str]) -> Optional[str]:
         nickname = nickname[:50]
     
     return nickname if nickname else None
+
+
+def verify_token(token: str) -> dict:
+    """验证 Token 并返回 payload"""
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        return payload
+    except JWTError:
+        raise HTTPException(status_code=401, detail="无效的令牌")

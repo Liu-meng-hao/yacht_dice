@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.security import OAuth2PasswordBearer
 from typing import Dict, Any
 from app.schemas.game import (
     CreateRoomRequest,
@@ -19,12 +20,35 @@ from app.models.room_player import RoomPlayer
 from app.models.user import User
 from app.game.game_manager import GameManager
 from app.core.response import ApiResponse, ApiResponseModel
+from app.core.security import verify_token
 from app.db.session import get_db
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
 import random
 
 router = APIRouter(tags=["房间"])
+
+# OAuth2 令牌方案
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+
+
+async def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db)
+) -> User:
+    """获取当前登录用户（通过 Token 验证）"""
+    payload = verify_token(token)
+    nickname = payload.get("sub")
+    user_id = payload.get("user_id")
+    
+    if not nickname or not user_id:
+        raise HTTPException(status_code=401, detail="令牌信息不完整")
+    
+    user = db.query(User).filter(User.id == user_id, User.nickname == nickname).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="用户不存在")
+    
+    return user
 
 
 def generate_room_code(db: Session):
@@ -73,7 +97,7 @@ def build_room_response(room: OnlineRoom) -> RoomResponse:
 @router.post(
     "/create",
     summary="创建房间",
-    description="创建新的联机游戏房间",
+    description="创建新的联机游戏房间（需要登录）",
     responses={
         200: {
             "model": ApiResponseModel[RoomResponse],
@@ -81,11 +105,11 @@ def build_room_response(room: OnlineRoom) -> RoomResponse:
         }
     }
 )
-async def create_room(request: CreateRoomRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.client_id == request.client_id).first()
-    if not user:
-        return ApiResponse.error(msg="用户不存在", code=404)
-
+async def create_room(
+    request: CreateRoomRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user)
+):
     room_code = generate_room_code(db)
 
     room = OnlineRoom(
@@ -100,7 +124,7 @@ async def create_room(request: CreateRoomRequest, db: Session = Depends(get_db))
     room_player = RoomPlayer(
         room=room,
         user_id=user.id,
-        client_id=request.client_id,
+        client_id=user.client_id,
         player_name=request.player_name,
         is_host=True
     )
@@ -119,7 +143,7 @@ async def create_room(request: CreateRoomRequest, db: Session = Depends(get_db))
 @router.post(
     "/join",
     summary="加入房间",
-    description="加入指定的联机房间",
+    description="加入指定的联机房间（需要登录）",
     responses={
         200: {
             "model": ApiResponseModel[JoinRoomResponse],
@@ -127,11 +151,11 @@ async def create_room(request: CreateRoomRequest, db: Session = Depends(get_db))
         }
     }
 )
-async def join_room(request: JoinRoomRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.client_id == request.client_id).first()
-    if not user:
-        return ApiResponse.error(msg="用户不存在", code=404)
-
+async def join_room(
+    request: JoinRoomRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user)
+):
     room = db.query(OnlineRoom).filter(
         OnlineRoom.room_code == request.room_code,
         OnlineRoom.is_deleted == 0
@@ -157,7 +181,7 @@ async def join_room(request: JoinRoomRequest, db: Session = Depends(get_db)):
     player = RoomPlayer(
         room_id=room.id,
         user_id=user.id,
-        client_id=request.client_id,
+        client_id=user.client_id,
         player_name=request.player_name,
         is_host=False
     )
