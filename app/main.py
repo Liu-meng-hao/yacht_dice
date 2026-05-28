@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
 from app.core.config import settings
 from app.api import health, home, room, game, websocket, score, settlement, auth
 
@@ -27,6 +28,60 @@ app.include_router(score.router, prefix=f"{settings.API_V1_STR}/score", tags=["�
 app.include_router(settlement.router, prefix=f"{settings.API_V1_STR}/settlement", tags=["结算"])
 app.include_router(auth.router, prefix=f"{settings.API_V1_STR}/auth", tags=["认证"])
 
+app.router.add_api_websocket_route(
+    path=f"{settings.API_V1_STR}/game/ws/{{game_id}}/{{player_id}}",
+    endpoint=websocket.websocket_endpoint
+)
+
+_original_openapi = app.openapi
+
+def _custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    openapi_schema = get_openapi(
+        title=settings.PROJECT_NAME,
+        version=settings.PROJECT_VERSION,
+        description="快艇骰子游戏后端API服务",
+        routes=app.routes,
+    )
+    ws_path = f"{settings.API_V1_STR}/game/ws/{{game_id}}/{{player_id}}"
+    if ws_path not in openapi_schema["paths"]:
+        openapi_schema["paths"][ws_path] = {
+            "get": {
+                "summary": "WebSocket 连接",
+                "description": "建立 WebSocket 连接用于实时游戏状态同步",
+                "tags": ["实时通信"],
+                "operationId": "websocket_connect",
+                "parameters": [
+                    {
+                        "name": "game_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "description": "游戏房间ID"}
+                    },
+                    {
+                        "name": "player_id",
+                        "in": "path",
+                        "required": True,
+                        "schema": {"type": "string", "description": "玩家ID"}
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "WebSocket 连接成功"
+                    }
+                }
+            }
+        }
+    if "实时通信" not in [t["name"] for t in openapi_schema.get("tags", [])]:
+        openapi_schema.setdefault("tags", []).append({
+            "name": "实时通信",
+            "description": "WebSocket 实时通信接口，用于多人游戏状态同步"
+        })
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+app.openapi = _custom_openapi
 
 @app.get("/")
 async def root():
