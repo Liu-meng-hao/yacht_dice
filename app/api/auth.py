@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.user import UserRegister, UserLogin, UserResponse, TokenResponse
@@ -19,12 +20,18 @@ def register(
     用户注册接口
     
     - **nickname**: 用户昵称（唯一，用于登录）
+    - **phone**: 手机号码（必填）
     - **password**: 密码
     """
     # 检查昵称是否已存在
     existing_user = db.query(User).filter(User.nickname == user.nickname).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="昵称已被使用")
+    
+    # 检查手机号是否已存在
+    existing_phone = db.query(User).filter(User.phone == user.phone).first()
+    if existing_phone:
+        raise HTTPException(status_code=400, detail="手机号已被使用")
     
     # 检查客户端ID是否已存在
     existing_client = db.query(User).filter(User.client_id == user.nickname).first()
@@ -36,6 +43,7 @@ def register(
     new_user = User(
         client_id=user.nickname,
         nickname=user.nickname,
+        phone=user.phone,
         password=hashed_password,
         user_type=1,
         points=1580  # 默认初始积分
@@ -58,6 +66,7 @@ def register(
         user=UserResponse(
             id=new_user.id,
             nickname=new_user.nickname,
+            phone=new_user.phone,
             points=new_user.points,
             total_games=new_user.total_games,
             total_wins=new_user.total_wins,
@@ -74,21 +83,23 @@ def login(
     """
     用户登录接口
     
-    - **nickname**: 用户昵称
+    - **account**: 用户昵称或手机号码
     - **password**: 密码
     """
-    # 查找用户
-    db_user = db.query(User).filter(User.nickname == user.nickname).first()
+    # 查找用户（通过昵称或手机号）
+    db_user = db.query(User).filter(
+        or_(User.nickname == user.account, User.phone == user.account)
+    ).first()
     
     if not db_user:
-        raise HTTPException(status_code=400, detail="昵称或密码错误")
+        raise HTTPException(status_code=400, detail="账号或密码错误")
     
     if not db_user.password:
         raise HTTPException(status_code=400, detail="该账号未设置密码，请联系管理员")
     
     # 验证密码
     if not verify_password(user.password, db_user.password):
-        raise HTTPException(status_code=400, detail="昵称或密码错误")
+        raise HTTPException(status_code=400, detail="账号或密码错误")
     
     # 生成访问令牌
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -103,6 +114,7 @@ def login(
         user=UserResponse(
             id=db_user.id,
             nickname=db_user.nickname,
+            phone=db_user.phone,
             points=db_user.points,
             total_games=db_user.total_games,
             total_wins=db_user.total_wins,
