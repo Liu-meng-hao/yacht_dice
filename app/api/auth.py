@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.user import UserRegister, UserLogin, UserResponse, TokenResponse
-from app.core.security import get_password_hash, verify_password, create_access_token
+from app.core.security import get_password_hash, verify_password, create_access_token, validate_password
 from app.core.config import settings
 from datetime import timedelta
 
@@ -30,6 +30,11 @@ def register(
     existing_client = db.query(User).filter(User.client_id == user.nickname).first()
     if existing_client:
         raise HTTPException(status_code=400, detail="该昵称已关联其他账号")
+    
+    # 验证密码强度
+    password_valid, password_msg = validate_password(user.password)
+    if not password_valid:
+        raise HTTPException(status_code=400, detail=password_msg)
     
     # 创建新用户
     hashed_password = get_password_hash(user.password)
