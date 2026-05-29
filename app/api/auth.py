@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from app.db.session import get_db
 from app.models.user import User
+from app.models.user_setting import UserSetting
 from app.schemas.user import UserRegister, UserLogin, UserResponse, TokenResponse
 from app.core.security import get_password_hash, verify_password, create_access_token, validate_password
 from app.core.config import settings
@@ -57,6 +58,15 @@ def register(
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
+    
+    # 创建用户设置
+    new_setting = UserSetting(
+        user_id=new_user.id,
+        sound_enabled=1,
+        rule_popup_enabled=1
+    )
+    db.add(new_setting)
+    db.commit()
     
     # 生成访问令牌
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)

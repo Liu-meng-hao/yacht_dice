@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from typing import Dict, List
 import json
 from app.schemas.game import (
@@ -20,6 +20,7 @@ from app.models.user import User
 from app.models import GamePlayer, PlayerScoreDetail, ScoreItem, GameRound
 from sqlalchemy import func
 from app.core.response import ApiResponse, ApiResponseModel
+from app.core.dependencies import get_current_user
 
 router = APIRouter(tags=["计分"])
 
@@ -35,7 +36,7 @@ router = APIRouter(tags=["计分"])
         }
     }
 )
-async def init_score_panel(game_id: str):
+async def init_score_panel(game_id: str, user: User = Depends(get_current_user)):
     game_data = GameManager.get_game(game_id)
     if not game_data:
         return ApiResponse.error(msg="游戏不存在", code=404)
@@ -75,7 +76,7 @@ async def init_score_panel(game_id: str):
         }
     }
 )
-async def get_lock_status(game_id: str, player_id: str):
+async def get_lock_status(game_id: str, player_id: str, user: User = Depends(get_current_user)):
     game_data = GameManager.get_game(game_id)
     if not game_data:
         return ApiResponse.error(msg="游戏不存在", code=404)
@@ -282,7 +283,7 @@ async def get_lock_status(game_id: str, player_id: str):
         }
     }
 )
-async def get_possible_scores(game_id: str):
+async def get_possible_scores(game_id: str, user: User = Depends(get_current_user)):
     game_data = GameManager.get_game(game_id)
     if not game_data:
         return ApiResponse.error(msg="游戏不存在", code=404)

@@ -19,28 +19,28 @@ class ScoreCalculator:
             target = number_map[category]
             return counts.get(target, 0) * target
         
-        elif category == "three_of_a_kind":
+        elif category in ["three_of_a_kind", "threeOfAKind"]:
             if any(count >= 3 for count in counts.values()):
                 return sum(dice)
             return 0
         
-        elif category == "four_of_a_kind":
+        elif category in ["four_of_a_kind", "fourOfAKind"]:
             if any(count >= 4 for count in counts.values()):
                 return sum(dice)
             return 0
         
-        elif category == "full_house":
+        elif category in ["full_house", "fullHouse"]:
             sorted_counts = sorted(counts.values())
             if sorted_counts == [2, 3]:
                 return 25
             return 0
         
-        elif category == "small_straight":
+        elif category in ["small_straight", "smallStraight"]:
             if ScoreCalculator._has_straight(dice, 4):
                 return 30
             return 0
         
-        elif category == "large_straight":
+        elif category in ["large_straight", "largeStraight"]:
             if ScoreCalculator._has_straight(dice, 5):
                 return 40
             return 0
