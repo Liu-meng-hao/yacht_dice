@@ -3,8 +3,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from app.db.session import get_db
 from app.models.user import User
+from app.models.user_setting import UserSetting
 from app.schemas.user import UserRegister, UserLogin, UserResponse, TokenResponse
-from app.core.security import get_password_hash, verify_password, create_access_token
+from app.core.security import get_password_hash, verify_password, create_access_token, validate_password
 from app.core.config import settings
 from datetime import timedelta
 
@@ -38,6 +39,11 @@ def register(
     if existing_client:
         raise HTTPException(status_code=400, detail="该昵称已关联其他账号")
     
+    # 验证密码强度
+    password_valid, password_msg = validate_password(user.password)
+    if not password_valid:
+        raise HTTPException(status_code=400, detail=password_msg)
+    
     # 创建新用户
     hashed_password = get_password_hash(user.password)
     new_user = User(
@@ -52,6 +58,15 @@ def register(
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
+    
+    # 创建用户设置
+    new_setting = UserSetting(
+        user_id=new_user.id,
+        sound_enabled=1,
+        rule_popup_enabled=1
+    )
+    db.add(new_setting)
+    db.commit()
     
     # 生成访问令牌
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)

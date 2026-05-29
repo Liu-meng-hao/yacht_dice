@@ -323,9 +323,11 @@ class GameManager:
         if not score_item:
             raise Exception("Invalid category")
         
+        user_id_int = int(user_id)
+        
         existing = game_data.db.query(PlayerScoreDetail).filter(
             PlayerScoreDetail.game_id == game_data.db_game_id,
-            PlayerScoreDetail.player_id == user_id,
+            PlayerScoreDetail.player_id == user_id_int,
             PlayerScoreDetail.score_item_id == score_item.id
         ).first()
         if existing:
@@ -336,7 +338,7 @@ class GameManager:
         
         db_score = PlayerScoreDetail(
             game_id=game_data.db_game_id,
-            player_id=user_id,
+            player_id=user_id_int,
             score_item_id=score_item.id,
             round_number=game_data.db_round.round_number,
             score_value=score,
@@ -344,8 +346,8 @@ class GameManager:
         )
         game_data.db.add(db_score)
         
-        player = next(p for p in game_data.db_players if p.user_id == user_id)
-        all_scores = game_data.get_player_scores(user_id)
+        player = next(p for p in game_data.db_players if p.user_id == user_id_int)
+        all_scores = game_data.get_player_scores(user_id_int)
         all_scores[category] = score
         player.total_score = ScoreCalculator.calculate_total_score(all_scores)
         player.upper_score = ScoreCalculator.calculate_upper_score(all_scores)

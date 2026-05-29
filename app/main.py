@@ -2,8 +2,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from app.core.config import settings
+from app.core.logging_config import setup_logging
+from app.core.middleware import RequestLogMiddleware
 from app.api import health, home, room, game, websocket, score, settlement, auth
 
+setup_logging()
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -18,6 +21,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.add_middleware(RequestLogMiddleware)
 
 app.include_router(health.router, prefix=settings.API_V1_STR, tags=["健康检查"])
 app.include_router(home.router, prefix=f"{settings.API_V1_STR}/home", tags=["首页"])

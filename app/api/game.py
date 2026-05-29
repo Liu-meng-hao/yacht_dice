@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from typing import Optional
 import re
 from datetime import datetime
@@ -21,6 +21,8 @@ from app.schemas.game import (
 from app.game.game_manager import GameManager
 from app.core.response import ApiResponse, ApiResponseModel
 from app.websocket.manager import manager
+from app.core.dependencies import get_current_user
+from app.models.user import User
 
 router = APIRouter(tags=["游戏"])
 
@@ -36,7 +38,7 @@ router = APIRouter(tags=["游戏"])
         }
     }
 )
-async def create_game(request: CreateGameRequest):
+async def create_game(request: CreateGameRequest, user: User = Depends(get_current_user)):
     game_data = None
     try:
         # 将玩家名称列表转换为字典列表
@@ -85,7 +87,7 @@ async def create_game(request: CreateGameRequest):
         }
     }
 )
-async def get_game_state(game_id: str):
+async def get_game_state(game_id: str, user: User = Depends(get_current_user)):
     game_data = GameManager.get_game(game_id)
     if not game_data:
         return ApiResponse.error(msg="游戏不存在", code=404)
@@ -120,7 +122,7 @@ async def get_game_state(game_id: str):
         }
     }
 )
-async def roll_dice(game_id: str, request: DiceRollRequest):
+async def roll_dice(game_id: str, request: DiceRollRequest, user: User = Depends(get_current_user)):
     game_data = GameManager.get_game(game_id)
     if not game_data:
         return ApiResponse.error(msg="游戏不存在", code=404)
@@ -166,7 +168,7 @@ async def roll_dice(game_id: str, request: DiceRollRequest):
         }
     }
 )
-async def reset_dice(game_id: str, request: DiceResetRequest):
+async def reset_dice(game_id: str, request: DiceResetRequest, user: User = Depends(get_current_user)):
     game_data = GameManager.get_game(game_id)
     if not game_data:
         return ApiResponse.error(msg="游戏不存在", code=404)
@@ -206,7 +208,7 @@ async def reset_dice(game_id: str, request: DiceResetRequest):
         }
     }
 )
-async def toggle_dice_lock(game_id: str, request: DiceToggleRequest):
+async def toggle_dice_lock(game_id: str, request: DiceToggleRequest, user: User = Depends(get_current_user)):
     game_data = GameManager.get_game(game_id)
     if not game_data:
         return ApiResponse.error(msg="游戏不存在", code=404)
@@ -244,12 +246,22 @@ async def toggle_dice_lock(game_id: str, request: DiceToggleRequest):
         }
     }
 )
-async def submit_score(game_id: str, request: ScoreSubmitRequest):
+async def submit_score(game_id: str, request: ScoreSubmitRequest, user: User = Depends(get_current_user)):
     game_data = GameManager.get_game(game_id)
     if not game_data:
         return ApiResponse.error(msg="游戏不存在", code=404)
     try:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"submit_score called with game_id={game_id}, player_id={request.player_id}, category={request.category}")
+        
+        current_player = game_data.get_current_player()
+        logger.info(f"Current player: {current_player.user_id if current_player else None}")
+        logger.info(f"Is your turn: {str(current_player.user_id) == request.player_id if current_player else False}")
+        
         result = GameManager.submit_score(game_data, request.player_id, request.category)
+        logger.info(f"submit_score result: {result}")
+        
         game_dict = game_data.to_dict()
 
         next_player = game_dict["current_player"] if game_dict["status"] != "finished" else None
@@ -306,7 +318,12 @@ async def submit_score(game_id: str, request: ScoreSubmitRequest):
         )
     except Exception as e:
         game_data.close()
-        return ApiResponse.error(msg=str(e), code=400)
+        error_msg = str(e)
+        logger.error(f"submit_score exception: {error_msg}")
+        logger.error(f"Exception type: {type(e).__name__}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return ApiResponse.error(msg=error_msg, code=400)
 
 
 @router.post(
@@ -320,7 +337,7 @@ async def submit_score(game_id: str, request: ScoreSubmitRequest):
         }
     }
 )
-async def quit_game(game_id: str, request: QuitGameRequest):
+async def quit_game(game_id: str, request: QuitGameRequest, user: User = Depends(get_current_user)):
     broadcast_msg = {
         "type": "system",
         "action": "player_quit",

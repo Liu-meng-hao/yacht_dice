@@ -67,6 +67,41 @@ def sanitize_nickname(nickname: Optional[str]) -> Optional[str]:
     return nickname if nickname else None
 
 
+def validate_password(password: str) -> tuple[bool, str]:
+    if not password or len(password.strip()) == 0:
+        return False, "密码不能为空"
+    
+    if len(password) < 8:
+        return False, "密码长度不能少于8个字符"
+    
+    if len(password) > 128:
+        return False, "密码长度不能超过128个字符"
+    
+    if re.search(r'[<>\"\'&;]', password):
+        return False, "密码包含非法字符"
+    
+    if re.search(r'(<script|javascript:|on\w+=)', password, re.IGNORECASE):
+        return False, "密码包含危险内容"
+    
+    weak_patterns = [
+        r'^(\d{8,})$',
+        r'^(abcdef|qwerty|123456|password|admin|root|123qwe)(.*)$',
+        r'^(\w)\1{5,}$'
+    ]
+    
+    for pattern in weak_patterns:
+        if re.search(pattern, password.lower()):
+            return False, "密码过于简单，请使用更复杂的密码"
+    
+    if not re.search(r'[a-zA-Z]', password):
+        return False, "密码必须包含至少一个字母"
+    
+    if not re.search(r'[0-9]', password):
+        return False, "密码必须包含至少一个数字"
+    
+    return True, password.strip()
+
+
 def verify_token(token: str) -> dict:
     """验证 Token 并返回 payload"""
     try:

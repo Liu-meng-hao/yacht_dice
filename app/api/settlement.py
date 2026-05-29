@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from typing import List
 from app.schemas.game import (
     SettlementResponse,
@@ -20,6 +20,7 @@ from app.core.response import ApiResponse, ApiResponseModel
 from app.db.session import get_db
 from app.models import GamePlayer as GamePlayerModel
 from app.models import User, PlayerScoreDetail
+from app.core.dependencies import get_current_user
 
 router = APIRouter(tags=["结算"])
 
@@ -36,7 +37,7 @@ router = APIRouter(tags=["结算"])
         }
     }
 )
-async def rematch(game_id: str, request: RematchRequest):
+async def rematch(game_id: str, request: RematchRequest, user: User = Depends(get_current_user)):
     game_data = GameManager.get_game(game_id)
     if not game_data:
         return ApiResponse.error(msg="游戏不存在", code=404)
@@ -82,7 +83,7 @@ async def rematch(game_id: str, request: RematchRequest):
         }
     }
 )
-async def back_to_home(game_id: str, request: BackToHomeRequest):
+async def back_to_home(game_id: str, request: BackToHomeRequest, user: User = Depends(get_current_user)):
     game_data = GameManager.get_game(game_id)
     if not game_data:
         return ApiResponse.error(msg="游戏不存在", code=404)
@@ -103,7 +104,7 @@ async def back_to_home(game_id: str, request: BackToHomeRequest):
         }
     }
 )
-async def get_final_ranking(game_id: str):
+async def get_final_ranking(game_id: str, user: User = Depends(get_current_user)):
     db_gen = get_db()
     db = next(db_gen)
 
@@ -151,7 +152,7 @@ async def get_final_ranking(game_id: str):
         }
     }
 )
-async def get_score_summary(game_id: str, player_id: int):
+async def get_score_summary(game_id: str, player_id: int, user: User = Depends(get_current_user)):
     db_gen = get_db()
     db = next(db_gen)
     
@@ -205,7 +206,7 @@ async def get_score_summary(game_id: str, player_id: int):
         }
     }
 )
-async def get_game_highlights(game_id: str, player_id: int):
+async def get_game_highlights(game_id: str, player_id: int, user: User = Depends(get_current_user)):
     db_gen = get_db()
     db = next(db_gen)
     
