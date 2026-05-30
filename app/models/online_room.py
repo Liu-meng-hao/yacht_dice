@@ -17,6 +17,7 @@ class OnlineRoom(Base):
     current_player_count = Column(Integer, nullable=False, default=1, comment="当前玩家数")
     room_status = Column(Integer, nullable=False, default=1, comment="房间状态：1-等待，2-游戏中，3-已解散")
     game_id = Column(BigInteger, nullable=True, comment="关联的游戏ID")
+    game_mode = Column(String(20), nullable=False, default="online", comment="游戏模式：local-本地多人，ai-人机对战，online-在线联机")
     create_time = Column(DateTime, server_default=func.now(), comment="创建时间")
     is_deleted = Column(Integer, nullable=False, default=0, comment="是否删除：0-正常，1-删除")
 
