@@ -16,10 +16,15 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 app.add_middleware(RequestLogMiddleware)
@@ -36,6 +41,11 @@ app.include_router(auth.router, prefix=f"{settings.API_V1_STR}/auth", tags=["认
 app.router.add_api_websocket_route(
     path=f"{settings.API_V1_STR}/game/ws/{{game_id}}/{{player_id}}",
     endpoint=websocket.websocket_endpoint
+)
+
+app.router.add_api_websocket_route(
+    path=f"{settings.API_V1_STR}/room/ws/{{room_code}}/{{player_id}}",
+    endpoint=websocket.room_websocket_endpoint
 )
 
 _original_openapi = app.openapi
