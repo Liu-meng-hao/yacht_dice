@@ -114,35 +114,51 @@ async def create_room(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user)
 ):
-    room_code = generate_room_code(db)
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        logger.info(f"创建房间请求: user_id={user.id}, request={request}")
+        
+        room_code = generate_room_code(db)
+        logger.info(f"生成房间码: {room_code}")
 
-    room = OnlineRoom(
-        room_code=room_code,
-        room_name=request.room_name or f"房间 {room_code}",
-        max_player_count=request.max_players,
-        current_player_count=1,
-        room_status=1,
-        host_id=str(user.id)
-    )
+        room = OnlineRoom(
+            room_code=room_code,
+            room_name=request.room_name or f"房间 {room_code}",
+            max_player_count=request.max_players,
+            current_player_count=1,
+            room_status=1,
+            host_id=str(user.id)
+        )
 
-    room_player = RoomPlayer(
-        room=room,
-        user_id=user.id,
-        client_id=user.client_id,
-        player_name=request.player_name,
-        is_host=True,
-        is_ready=True
-    )
+        room_player = RoomPlayer(
+            room=room,
+            user_id=user.id,
+            client_id=user.client_id,
+            player_name=request.player_name,
+            is_host=True,
+            is_ready=True
+        )
 
-    db.add(room)
-    db.add(room_player)
-    db.commit()
-    db.refresh(room)
+        db.add(room)
+        db.add(room_player)
+        db.commit()
+        db.refresh(room)
+        logger.info(f"房间创建成功: room_id={room.id}")
 
-    return ApiResponse.success(
-        data=build_room_response(room),
-        msg="房间创建成功"
-    )
+        room_with_players = db.query(OnlineRoom).filter(
+            OnlineRoom.id == room.id
+        ).options(joinedload(OnlineRoom.players).joinedload(RoomPlayer.user)).first()
+
+        return ApiResponse.success(
+            data=build_room_response(room_with_players),
+            msg="房间创建成功"
+        )
+    except Exception as e:
+        db.rollback()
+        logger.exception(f"创建房间失败: {e}")
+        return ApiResponse.error(msg=f"创建房间失败: {str(e)}", code=500)
 
 
 @router.post(
@@ -612,9 +628,8 @@ async def get_current_room(
 
     return ApiResponse.success(
         data={
-            "room_code": room.room_code,
-            "player_id": user.id,
-            "room": build_room_response(room)
+            "room": build_room_response(room),
+            "playerId": user.id
         },
         msg="获取成功"
     )
