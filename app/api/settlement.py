@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends
 from typing import List
+from sqlalchemy import func
 from app.schemas.game import (
     SettlementResponse,
     SettlementPlayer,
@@ -234,7 +235,7 @@ async def get_game_highlights(game_id: str, player_id: int, user: User = Depends
         highest_round_score = highest_score_result[0] if highest_score_result else 0
         
         upper_total = db.query(
-            db.func.sum(PlayerScoreDetail.score_value)
+            func.sum(PlayerScoreDetail.score_value)
         ).filter(
             PlayerScoreDetail.game_id == int(game_id),
             PlayerScoreDetail.player_id == player_id,
