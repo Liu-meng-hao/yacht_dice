@@ -21,8 +21,9 @@ from app.schemas.game import (
 from app.game.game_manager import GameManager
 from app.core.response import ApiResponse, ApiResponseModel
 from app.websocket.manager import manager
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user_optional
 from app.models.user import User
+from fastapi import HTTPException
 
 router = APIRouter(tags=["游戏"])
 
@@ -30,7 +31,7 @@ router = APIRouter(tags=["游戏"])
 @router.post(
     "/create",
     summary="创建游戏",
-    description="创建新游戏，支持本地多人、人机对战模式",
+    description="创建新游戏，支持本地多人、人机对战、在线联机模式",
     responses={
         200: {
             "model": ApiResponseModel[CreateGameResponse],
@@ -38,9 +39,13 @@ router = APIRouter(tags=["游戏"])
         }
     }
 )
-async def create_game(request: CreateGameRequest, user: User = Depends(get_current_user)):
+async def create_game(request: CreateGameRequest, user: Optional[User] = Depends(get_current_user_optional)):
     game_data = None
     try:
+        # online 模式必须登录
+        if request.game_mode == GameMode.ONLINE and not user:
+            raise HTTPException(status_code=401, detail="在线模式需要登录")
+        
         # 将玩家名称列表转换为字典列表
         players = [{"player_name": name} for name in request.player_names]
         game_data = GameManager.create_game(request.game_mode.value, players)
@@ -54,6 +59,8 @@ async def create_game(request: CreateGameRequest, user: User = Depends(get_curre
             ),
             msg="游戏创建成功"
         )
+    except HTTPException:
+        raise
     except Exception as e:
         error_msg = str(e)
         if "validation error" in error_msg.lower():
@@ -87,11 +94,18 @@ async def create_game(request: CreateGameRequest, user: User = Depends(get_curre
         }
     }
 )
-async def get_game_state(game_id: str, user: User = Depends(get_current_user)):
+async def get_game_state(game_id: str, user: Optional[User] = Depends(get_current_user_optional)):
     game_data = GameManager.get_game(game_id)
     if not game_data:
         return ApiResponse.error(msg="游戏不存在", code=404)
+    
     game_dict = game_data.to_dict()
+    
+    # ONLINE 模式必须登录
+    if game_dict["game_mode"] == GameMode.ONLINE.value and not user:
+        game_data.close()
+        return ApiResponse.error(msg="在线模式需要登录", code=401)
+    
     game_data.close()
     
     return ApiResponse.success(
@@ -122,10 +136,18 @@ async def get_game_state(game_id: str, user: User = Depends(get_current_user)):
         }
     }
 )
-async def roll_dice(game_id: str, request: DiceRollRequest, user: User = Depends(get_current_user)):
+async def roll_dice(game_id: str, request: DiceRollRequest, user: Optional[User] = Depends(get_current_user_optional)):
     game_data = GameManager.get_game(game_id)
     if not game_data:
         return ApiResponse.error(msg="游戏不存在", code=404)
+    
+    game_dict = game_data.to_dict()
+    
+    # ONLINE 模式必须登录
+    if game_dict["game_mode"] == GameMode.ONLINE.value and not user:
+        game_data.close()
+        return ApiResponse.error(msg="在线模式需要登录", code=401)
+    
     try:
         locked_indices = [i for i, locked in enumerate(request.locked_dice) if locked]
         dice = GameManager.roll_dice(game_data, request.player_id, locked_indices)
@@ -168,12 +190,18 @@ async def roll_dice(game_id: str, request: DiceRollRequest, user: User = Depends
         }
     }
 )
-async def reset_dice(game_id: str, request: DiceResetRequest, user: User = Depends(get_current_user)):
+async def reset_dice(game_id: str, request: DiceResetRequest, user: Optional[User] = Depends(get_current_user_optional)):
     game_data = GameManager.get_game(game_id)
     if not game_data:
         return ApiResponse.error(msg="游戏不存在", code=404)
 
     game_dict = game_data.to_dict()
+    
+    # ONLINE 模式必须登录
+    if game_dict["game_mode"] == GameMode.ONLINE.value and not user:
+        game_data.close()
+        return ApiResponse.error(msg="在线模式需要登录", code=401)
+    
     game_data.close()
 
     broadcast_msg = {
@@ -208,12 +236,18 @@ async def reset_dice(game_id: str, request: DiceResetRequest, user: User = Depen
         }
     }
 )
-async def toggle_dice_lock(game_id: str, request: DiceToggleRequest, user: User = Depends(get_current_user)):
+async def toggle_dice_lock(game_id: str, request: DiceToggleRequest, user: Optional[User] = Depends(get_current_user_optional)):
     game_data = GameManager.get_game(game_id)
     if not game_data:
         return ApiResponse.error(msg="游戏不存在", code=404)
 
     game_dict = game_data.to_dict()
+    
+    # ONLINE 模式必须登录
+    if game_dict["game_mode"] == GameMode.ONLINE.value and not user:
+        game_data.close()
+        return ApiResponse.error(msg="在线模式需要登录", code=401)
+    
     dice_locked = game_dict["dice_locked"]
     if 0 <= request.dice_index < 5:
         dice_locked[request.dice_index] = not dice_locked[request.dice_index]
@@ -246,10 +280,18 @@ async def toggle_dice_lock(game_id: str, request: DiceToggleRequest, user: User 
         }
     }
 )
-async def submit_score(game_id: str, request: ScoreSubmitRequest, user: User = Depends(get_current_user)):
+async def submit_score(game_id: str, request: ScoreSubmitRequest, user: Optional[User] = Depends(get_current_user_optional)):
     game_data = GameManager.get_game(game_id)
     if not game_data:
         return ApiResponse.error(msg="游戏不存在", code=404)
+    
+    game_dict = game_data.to_dict()
+    
+    # ONLINE 模式必须登录
+    if game_dict["game_mode"] == GameMode.ONLINE.value and not user:
+        game_data.close()
+        return ApiResponse.error(msg="在线模式需要登录", code=401)
+    
     try:
         import logging
         logger = logging.getLogger(__name__)
@@ -337,7 +379,18 @@ async def submit_score(game_id: str, request: ScoreSubmitRequest, user: User = D
         }
     }
 )
-async def quit_game(game_id: str, request: QuitGameRequest, user: User = Depends(get_current_user)):
+async def quit_game(game_id: str, request: QuitGameRequest, user: Optional[User] = Depends(get_current_user_optional)):
+    game_data = GameManager.get_game(game_id)
+    if not game_data:
+        return ApiResponse.error(msg="游戏不存在", code=404)
+    
+    game_dict = game_data.to_dict()
+    game_data.close()
+    
+    # ONLINE 模式必须登录
+    if game_dict["game_mode"] == GameMode.ONLINE.value and not user:
+        return ApiResponse.error(msg="在线模式需要登录", code=401)
+    
     broadcast_msg = {
         "type": "system",
         "action": "player_quit",

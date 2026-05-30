@@ -1,3 +1,4 @@
+from typing import Optional
 from fastapi import Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
@@ -28,3 +29,27 @@ async def get_current_user(
         raise HTTPException(status_code=401, detail="用户已被删除")
     
     return user
+
+
+async def get_current_user_optional(
+    token: Optional[str] = Depends(oauth2_scheme),
+    db: Session = Depends(get_db)
+) -> Optional[User]:
+    """获取当前登录用户（可选，没有 Token 时返回 None）"""
+    if not token:
+        return None
+    
+    try:
+        payload = verify_token(token)
+        nickname = payload.get("sub")
+        user_id = payload.get("user_id")
+        
+        if not nickname or not user_id:
+            return None
+        
+        user = db.query(User).filter(User.id == user_id, User.nickname == nickname).first()
+        if user and not user.is_deleted:
+            return user
+        return None
+    except:
+        return None
