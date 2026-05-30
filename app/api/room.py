@@ -7,6 +7,8 @@ from app.schemas.game import (
     LeaveRoomRequest,
     StartGameRequest,
     DissolveRoomRequest,
+    KickPlayerRequest,
+    ReadyRequest,
     RoomResponse,
     RoomPlayer as RoomPlayerSchema,
     RoomListResponse,
@@ -25,6 +27,7 @@ from app.db.session import get_db
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
 import random
+from app.websocket.manager import manager
 
 router = APIRouter(tags=["房间"])
 
@@ -81,6 +84,7 @@ def build_room_response(room: OnlineRoom) -> RoomResponse:
             player_id=str(p.user_id),
             name=p.player_name,
             is_host=p.is_host,
+            is_ready=p.is_ready,
             points=points
         ))
 
@@ -126,7 +130,8 @@ async def create_room(
         user_id=user.id,
         client_id=user.client_id,
         player_name=request.player_name,
-        is_host=True
+        is_host=True,
+        is_ready=True
     )
 
     db.add(room)
@@ -176,14 +181,23 @@ async def join_room(
     ).first()
 
     if existing_player:
-        return ApiResponse.error(msg="你已在房间中", code=400)
+        return ApiResponse.error(
+            msg="你已在房间中",
+            code=409,
+            data={
+                "room_code": room.room_code,
+                "player_id": user.id,
+                "room": build_room_response(room)
+            }
+        )
 
     player = RoomPlayer(
         room_id=room.id,
         user_id=user.id,
         client_id=user.client_id,
         player_name=request.player_name,
-        is_host=False
+        is_host=False,
+        is_ready=False
     )
 
     room.current_player_count += 1
@@ -194,6 +208,11 @@ async def join_room(
     room_with_players = db.query(OnlineRoom).filter(
         OnlineRoom.id == room.id
     ).options(joinedload(OnlineRoom.players).joinedload(RoomPlayer.user)).first()
+
+    await manager.broadcast(room_code, {
+        "type": "room_updated",
+        "data": build_room_response(room_with_players)
+    })
 
     return ApiResponse.success(
         data=JoinRoomResponse(
@@ -215,7 +234,7 @@ async def join_room(
         }
     }
 )
-async def leave_room(request: LeaveRoomRequest, db: Session = Depends(get_db)):
+async def leave_room(request: LeaveRoomRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     try:
         room = db.query(OnlineRoom).filter(
             OnlineRoom.room_code == request.room_code,
@@ -227,7 +246,7 @@ async def leave_room(request: LeaveRoomRequest, db: Session = Depends(get_db)):
 
         player = db.query(RoomPlayer).filter(
             RoomPlayer.room_id == room.id,
-            RoomPlayer.user_id == request.player_id
+            RoomPlayer.user_id == user.id
         ).first()
 
         if not player:
@@ -239,6 +258,12 @@ async def leave_room(request: LeaveRoomRequest, db: Session = Depends(get_db)):
 
         if room.current_player_count == 0:
             room.is_deleted = 1
+            db.commit()
+            await manager.broadcast(room_code, {
+                "type": "room_updated",
+                "data": None
+            })
+            return ApiResponse.success(msg="离开房间成功")
         elif is_host:
             first_player = db.query(RoomPlayer).filter(
                 RoomPlayer.room_id == room.id
@@ -249,16 +274,25 @@ async def leave_room(request: LeaveRoomRequest, db: Session = Depends(get_db)):
 
         db.commit()
 
+        room_after = db.query(OnlineRoom).filter(
+            OnlineRoom.id == room.id
+        ).options(joinedload(OnlineRoom.players).joinedload(RoomPlayer.user)).first()
+
+        await manager.broadcast(room_code, {
+            "type": "room_updated",
+            "data": build_room_response(room_after)
+        })
+
         return ApiResponse.success(msg="离开房间成功")
     except Exception as e:
         db.rollback()
         return ApiResponse.error(msg=f"服务器内部错误: {str(e)}", code=500)
 
 
-@router.get(
-    "/{room_code}",
-    summary="获取房间信息",
-    description="获取指定房间的详细信息",
+@router.post(
+    "/{room_code}/kick",
+    summary="房主踢出玩家",
+    description="房主将指定玩家移出房间",
     responses={
         200: {
             "model": ApiResponseModel[RoomResponse],
@@ -266,19 +300,75 @@ async def leave_room(request: LeaveRoomRequest, db: Session = Depends(get_db)):
         }
     }
 )
-async def get_room(room_code: str, db: Session = Depends(get_db)):
-    room = db.query(OnlineRoom).filter(
-        OnlineRoom.room_code == room_code,
-        OnlineRoom.is_deleted == 0
-    ).options(joinedload(OnlineRoom.players).joinedload(RoomPlayer.user)).first()
+async def kick_player(room_code: str, request: KickPlayerRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    try:
+        room = db.query(OnlineRoom).filter(
+            OnlineRoom.room_code == room_code,
+            OnlineRoom.is_deleted == 0
+        ).options(joinedload(OnlineRoom.players).joinedload(RoomPlayer.user)).first()
 
-    if not room:
-        return ApiResponse.error(msg="房间不存在", code=404)
+        if not room:
+            return ApiResponse.error(msg="房间不存在", code=404)
 
-    return ApiResponse.success(
-        data=build_room_response(room),
-        msg="获取成功"
-    )
+        if room.host_id != str(user.id):
+            return ApiResponse.error(msg="只有房主才能踢人", code=403)
+
+        if room.room_status != 1:
+            return ApiResponse.error(msg="游戏已开始，无法踢人", code=409)
+
+        target_player = db.query(RoomPlayer).filter(
+            RoomPlayer.room_id == room.id,
+            RoomPlayer.user_id == request.target_player_id
+        ).first()
+
+        if not target_player:
+            return ApiResponse.error(msg="目标玩家不在房间中", code=404)
+
+        if user.id == request.target_player_id:
+            return ApiResponse.error(msg="房主不能踢自己", code=400)
+
+        target_player_id_str = str(request.target_player_id)
+        db.delete(target_player)
+        room.current_player_count -= 1
+
+        if room.current_player_count == 0:
+            room.is_deleted = 1
+            db.commit()
+            await manager.broadcast(room_code, {
+                "type": "room_updated",
+                "data": None
+            })
+        else:
+            db.commit()
+            room_after = db.query(OnlineRoom).filter(
+                OnlineRoom.id == room.id
+            ).options(joinedload(OnlineRoom.players).joinedload(RoomPlayer.user)).first()
+
+            await manager.broadcast(room_code, {
+                "type": "room_updated",
+                "data": build_room_response(room_after)
+            })
+
+        await manager.send_personal_message(room_code, target_player_id_str, {
+            "type": "player_kicked",
+            "data": {
+                "room_code": room_code,
+                "player_id": request.target_player_id,
+                "message": "你已被房主移出房间"
+            }
+        })
+
+        if room.current_player_count > 0:
+            room_after = db.query(OnlineRoom).filter(
+                OnlineRoom.id == room.id
+            ).options(joinedload(OnlineRoom.players).joinedload(RoomPlayer.user)).first()
+            return ApiResponse.success(data=build_room_response(room_after), msg="踢出玩家成功")
+        else:
+            return ApiResponse.success(data=None, msg="踢出玩家成功")
+
+    except Exception as e:
+        db.rollback()
+        return ApiResponse.error(msg=f"服务器内部错误: {str(e)}", code=500)
 
 
 @router.get(
@@ -314,6 +404,32 @@ async def get_room_list(db: Session = Depends(get_db)):
     )
 
 
+@router.get(
+    "/{room_code}",
+    summary="获取房间信息",
+    description="获取指定房间的详细信息",
+    responses={
+        200: {
+            "model": ApiResponseModel[RoomResponse],
+            "description": "成功响应"
+        }
+    }
+)
+async def get_room(room_code: str, db: Session = Depends(get_db)):
+    room = db.query(OnlineRoom).filter(
+        OnlineRoom.room_code == room_code,
+        OnlineRoom.is_deleted == 0
+    ).options(joinedload(OnlineRoom.players).joinedload(RoomPlayer.user)).first()
+
+    if not room:
+        return ApiResponse.error(msg="房间不存在", code=404)
+
+    return ApiResponse.success(
+        data=build_room_response(room),
+        msg="获取成功"
+    )
+
+
 @router.post(
     "/{room_code}/start",
     summary="房主开始游戏",
@@ -325,7 +441,7 @@ async def get_room_list(db: Session = Depends(get_db)):
         }
     }
 )
-async def start_game(room_code: str, request: StartGameRequest, db: Session = Depends(get_db)):
+async def start_game(room_code: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     room = db.query(OnlineRoom).filter(
         OnlineRoom.room_code == room_code,
         OnlineRoom.is_deleted == 0
@@ -334,7 +450,7 @@ async def start_game(room_code: str, request: StartGameRequest, db: Session = De
     if not room:
         return ApiResponse.error(msg="房间不存在", code=404)
 
-    if room.host_id != str(request.player_id):
+    if room.host_id != str(user.id):
         return ApiResponse.error(msg="只有房主才能开始游戏", code=403)
 
     if room.room_status != 1:
@@ -362,6 +478,11 @@ async def start_game(room_code: str, request: StartGameRequest, db: Session = De
     room.game_id = int(game_id)
     db.commit()
 
+    await manager.broadcast(room_code, {
+        "type": "room_updated",
+        "data": build_room_response(room)
+    })
+
     return ApiResponse.success(
         data=StartGameResponse(
             game_id=game_id,
@@ -382,7 +503,7 @@ async def start_game(room_code: str, request: StartGameRequest, db: Session = De
         }
     }
 )
-async def dissolve_room(room_code: str, request: DissolveRoomRequest, db: Session = Depends(get_db)):
+async def dissolve_room(room_code: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     room = db.query(OnlineRoom).filter(
         OnlineRoom.room_code == room_code,
         OnlineRoom.is_deleted == 0
@@ -391,10 +512,109 @@ async def dissolve_room(room_code: str, request: DissolveRoomRequest, db: Sessio
     if not room:
         return ApiResponse.error(msg="房间不存在", code=404)
 
-    if room.host_id != request.player_id:
+    if room.host_id != str(user.id):
         return ApiResponse.error(msg="只有房主才能解散房间", code=403)
 
     room.is_deleted = 1
     db.commit()
 
+    await manager.broadcast(room_code, {
+        "type": "room_updated",
+        "data": None
+    })
+
     return ApiResponse.success(msg="房间已解散")
+
+
+@router.post(
+    "/{room_code}/ready",
+    summary="玩家准备/取消准备",
+    description="玩家设置准备状态，房主不能取消准备",
+    responses={
+        200: {
+            "model": ApiResponseModel[RoomResponse],
+            "description": "成功响应"
+        }
+    }
+)
+async def set_ready(room_code: str, request: ReadyRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    try:
+        room = db.query(OnlineRoom).filter(
+            OnlineRoom.room_code == room_code,
+            OnlineRoom.is_deleted == 0
+        ).options(joinedload(OnlineRoom.players).joinedload(RoomPlayer.user)).first()
+
+        if not room:
+            return ApiResponse.error(msg="房间不存在", code=404)
+
+        if room.room_status != 1:
+            return ApiResponse.error(msg="游戏已开始，无法更改准备状态", code=409)
+
+        player = db.query(RoomPlayer).filter(
+            RoomPlayer.room_id == room.id,
+            RoomPlayer.user_id == user.id
+        ).first()
+
+        if not player:
+            return ApiResponse.error(msg="你不在这个房间", code=404)
+
+        if player.is_host and not request.is_ready:
+            return ApiResponse.error(msg="房主不能取消准备", code=400)
+
+        player.is_ready = request.is_ready
+        db.commit()
+
+        room_after = db.query(OnlineRoom).filter(
+            OnlineRoom.id == room.id
+        ).options(joinedload(OnlineRoom.players).joinedload(RoomPlayer.user)).first()
+
+        await manager.broadcast(room_code, {
+            "type": "room_updated",
+            "data": build_room_response(room_after)
+        })
+
+        return ApiResponse.success(data=build_room_response(room_after), msg="设置成功")
+
+    except Exception as e:
+        db.rollback()
+        return ApiResponse.error(msg=f"服务器内部错误: {str(e)}", code=500)
+
+
+@router.get(
+    "/current",
+    summary="获取当前房间",
+    description="获取用户当前所在的房间（用于刷新/状态恢复）",
+    responses={
+        200: {
+            "model": ApiResponseModel[None],
+            "description": "成功响应"
+        }
+    }
+)
+async def get_current_room(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user)
+):
+    player = db.query(RoomPlayer).filter(
+        RoomPlayer.user_id == user.id
+    ).first()
+
+    if not player:
+        return ApiResponse.success(data=None, msg="获取成功")
+
+    room = db.query(OnlineRoom).filter(
+        OnlineRoom.id == player.room_id,
+        OnlineRoom.is_deleted == 0
+    ).options(joinedload(OnlineRoom.players).joinedload(RoomPlayer.user)).first()
+
+    if not room:
+        return ApiResponse.success(data=None, msg="获取成功")
+
+    return ApiResponse.success(
+        data={
+            "room_code": room.room_code,
+            "player_id": user.id,
+            "room": build_room_response(room)
+        },
+        msg="获取成功"
+    )

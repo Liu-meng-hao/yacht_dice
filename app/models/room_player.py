@@ -13,6 +13,7 @@ class RoomPlayer(Base):
     client_id = Column(String(100), nullable=False, comment="客户端ID")
     player_name = Column(String(50), nullable=False, comment="玩家名称")
     is_host = Column(Boolean, nullable=False, default=False, comment="是否房主")
+    is_ready = Column(Boolean, nullable=False, default=False, comment="是否准备")
     create_time = Column(DateTime, server_default=func.now(), comment="加入时间")
 
     room = relationship("OnlineRoom", back_populates="players")

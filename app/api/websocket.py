@@ -1,6 +1,10 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 from app.websocket.manager import manager
 from app.game.game_manager import GameManager
+from app.models.online_room import OnlineRoom
+from app.models.room_player import RoomPlayer
+from app.db.session import get_db
+from sqlalchemy.orm import Session
 import json
 from datetime import datetime
 from enum import Enum
@@ -127,3 +131,76 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str, player_id: str)
     except Exception as e:
         logger.error(f"WebSocket error for player {player_id}: {e}")
         manager.disconnect(game_id, player_id, websocket)
+
+
+@router.websocket("/room/ws/{room_code}/{player_id}")
+async def room_websocket_endpoint(websocket: WebSocket, room_code: str, player_id: str):
+    """WebSocket 房间实时通信端点
+    用于房间状态实时同步
+
+    Args:
+        room_code: 房间编码
+        player_id: 玩家ID
+    """
+    from app.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        room = db.query(OnlineRoom).filter(
+            OnlineRoom.room_code == room_code,
+            OnlineRoom.is_deleted == 0
+        ).first()
+
+        if not room:
+            await websocket.close(code=1008)
+            return
+
+        player = db.query(RoomPlayer).filter(
+            RoomPlayer.room_id == room.id,
+            RoomPlayer.user_id == int(player_id)
+        ).first()
+
+        if not player:
+            await websocket.close(code=1008)
+            return
+
+        player_name = player.player_name
+
+    finally:
+        db.close()
+
+    success = await manager.connect(room_code, player_id, websocket, player_name)
+    if not success:
+        return
+
+    try:
+        while True:
+            data = await websocket.receive_text()
+
+            try:
+                message = json.loads(data)
+            except json.JSONDecodeError:
+                await websocket.send_text(json.dumps({
+                    "type": "error",
+                    "message": "Invalid JSON format",
+                    "timestamp": datetime.now().isoformat()
+                }))
+                continue
+
+            if message.get("type") == "pong":
+                continue
+
+            message["player_id"] = player_id
+            message["timestamp"] = datetime.now().isoformat()
+
+            try:
+                await manager.broadcast(room_code, message)
+            except Exception as e:
+                logger.error(f"Broadcast error: {e}")
+
+    except WebSocketDisconnect:
+        logger.info(f"Player {player_id} disconnected from room {room_code}")
+        manager.disconnect(room_code, player_id, websocket)
+    except Exception as e:
+        logger.error(f"WebSocket error for player {player_id}: {e}")
+        manager.disconnect(room_code, player_id, websocket)

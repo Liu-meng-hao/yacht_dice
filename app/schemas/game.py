@@ -123,10 +123,19 @@ class DissolveRoomRequest(BaseModel):
     player_id: int = Field(description="房主ID")
 
 
+class KickPlayerRequest(BaseModel):
+    target_player_id: int = Field(description="被踢玩家ID")
+
+
+class ReadyRequest(BaseModel):
+    is_ready: bool = Field(description="是否准备")
+
+
 class RoomPlayer(CamelCaseBaseModel):
     player_id: str = Field(description="玩家ID")
     name: str = Field(description="玩家名称")
     is_host: bool = Field(description="是否为房主")
+    is_ready: bool = Field(default=False, description="是否准备")
     points: int = Field(default=0, description="玩家积分")
 
 
