@@ -31,7 +31,7 @@ router = APIRouter(tags=["游戏"])
 @router.post(
     "/create",
     summary="创建游戏",
-    description="创建新游戏，支持本地多人、人机对战、在线联机模式",
+    description="创建新游戏，支持人机对战模式。游客可直接玩AI模式（无积分），登录用户可玩AI模式（有积分）。",
     responses={
         200: {
             "model": ApiResponseModel[CreateGameResponse],
@@ -40,25 +40,47 @@ router = APIRouter(tags=["游戏"])
     }
 )
 async def create_game(request: CreateGameRequest, user: Optional[User] = Depends(get_current_user_optional)):
-    game_data = None
     try:
-        # online 模式必须登录
-        if request.game_mode == GameMode.ONLINE and not user:
-            raise HTTPException(status_code=401, detail="在线模式需要登录")
+        # AI模式：游客和登录用户都可以玩
+        if request.game_mode == GameMode.AI:
+            # 判断是游客还是登录用户
+            if user:
+                # 登录用户：使用用户昵称，不需要 client_id
+                result = GameManager.create_game(
+                    game_mode=request.game_mode.value,
+                    player_name=user.nickname,
+                    client_id=None,
+                    ai_difficulty=request.ai_difficulty
+                )
+            else:
+                # 游客：必须提供 client_id
+                if not request.client_id:
+                    raise HTTPException(status_code=400, detail="游客模式需要提供 client_id")
+                result = GameManager.create_game(
+                    game_mode=request.game_mode.value,
+                    player_name=request.player_name,
+                    client_id=request.client_id,
+                    ai_difficulty=request.ai_difficulty
+                )
+            
+            return ApiResponse.success(
+                data=CreateGameResponse(
+                    game_id=result["game_id"],
+                    player_id=result["player_id"],
+                    user_type=result["user_type"],
+                    has_points=result["has_points"],
+                    current_points=result["current_points"]
+                ),
+                msg="游戏创建成功"
+            )
         
-        # 将玩家名称列表转换为字典列表
-        players = [{"player_name": name} for name in request.player_names]
-        game_data = GameManager.create_game(request.game_mode.value, players)
-        game_dict = game_data.to_dict()
-        game_data.close()
+        # ONLINE 模式：必须登录，且需要通过房间接口创建
+        elif request.game_mode == GameMode.ONLINE:
+            raise HTTPException(status_code=400, detail="在线模式请通过房间接口创建")
         
-        return ApiResponse.success(
-            data=CreateGameResponse(
-                game_id=game_dict["game_id"],
-                player_id=game_dict["players"][0]["player_id"]
-            ),
-            msg="游戏创建成功"
-        )
+        else:
+            raise HTTPException(status_code=400, detail="不支持的游戏模式")
+    
     except HTTPException:
         raise
     except Exception as e:
@@ -78,8 +100,6 @@ async def create_game(request: CreateGameRequest, user: Optional[User] = Depends
                     model_match = re.search(r'validation error for (\w+)', error_msg)
                     model = model_match.group(1) if model_match else ""
                     error_msg = f"数据验证失败: {model}"
-        if game_data:
-            game_data.close()
         return ApiResponse.error(msg=error_msg, code=400)
 
 
