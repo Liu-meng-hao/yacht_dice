@@ -4,7 +4,7 @@ from fastapi.openapi.utils import get_openapi
 from app.core.config import settings
 from app.core.logging_config import setup_logging
 from app.core.middleware import RequestLogMiddleware
-from app.api import health, home, room, game, websocket, score, settlement, auth
+from app.api import health, home, room, game, websocket, score, settlement, auth, leaderboard
 
 setup_logging()
 
@@ -37,6 +37,7 @@ app.include_router(websocket.router, prefix=f"{settings.API_V1_STR}/game", tags=
 app.include_router(score.router, prefix=f"{settings.API_V1_STR}/score", tags=["计分"])
 app.include_router(settlement.router, prefix=f"{settings.API_V1_STR}/settlement", tags=["结算"])
 app.include_router(auth.router, prefix=f"{settings.API_V1_STR}/auth", tags=["认证"])
+app.include_router(leaderboard.router, prefix=f"{settings.API_V1_STR}/leaderboard", tags=["排行榜"])
 
 app.router.add_api_websocket_route(
     path=f"{settings.API_V1_STR}/game/ws/{{game_id}}/{{player_id}}",
