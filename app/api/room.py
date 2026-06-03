@@ -94,7 +94,8 @@ def build_room_response(room: OnlineRoom) -> RoomResponse:
         max_players=room.max_player_count,
         players=players,
         status=get_room_status_enum(room.room_status),
-        host_id=room.host_id
+        host_id=room.host_id,
+        game_id=str(room.game_id) if room.game_id else None
     )
 
 
@@ -494,6 +495,9 @@ async def get_room(room_code: str, db: Session = Depends(get_db)):
     }
 )
 async def start_game(room_code: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    import logging
+    logger = logging.getLogger(__name__)
+    
     room = db.query(OnlineRoom).filter(
         OnlineRoom.room_code == room_code,
         OnlineRoom.is_deleted == 0
@@ -530,30 +534,43 @@ async def start_game(room_code: str, db: Session = Depends(get_db), user: User =
     room.game_id = int(game_id)
     db.commit()
 
-    # 广播房间更新
+    # 记录广播前的连接状态
+    room_player_count = manager.get_player_count(room_code)
+    game_player_count = manager.get_player_count(game_id)
+    logger.info(f"start_game: room_code={room_code} has {room_player_count} players, game_id={game_id} has {game_player_count} players")
+
+    # 广播房间更新（发送到房间码频道）
     try:
         await manager.broadcast(room_code, {
             "type": "room_updated",
             "data": build_room_response(room)
         })
+        logger.info(f"Broadcast room_updated to room {room_code} successful")
     except Exception as e:
-        import logging
-        logger = logging.getLogger(__name__)
         logger.error(f"Broadcast room_updated failed in start_game for room {room_code}: {e}")
 
-    # 广播游戏开始
+    # 广播游戏开始（同时发送到房间码和游戏ID两个频道，确保所有玩家都能收到）
+    game_start_msg = {
+        "type": "game_started",
+        "data": {
+            "game_id": game_id,
+            "room_code": room_code
+        }
+    }
+    
+    # 发送到房间码频道（房间页面的玩家）
     try:
-        await manager.broadcast(room_code, {
-            "type": "game_started",
-            "data": {
-                "gameId": game_id,
-                "roomCode": room_code
-            }
-        })
+        await manager.broadcast(room_code, game_start_msg)
+        logger.info(f"Broadcast game_started to room {room_code} successful")
     except Exception as e:
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.error(f"Broadcast game_started failed in start_game for room {room_code}: {e}")
+        logger.error(f"Broadcast game_started failed for room {room_code}: {e}")
+    
+    # 发送到游戏ID频道（游戏页面的玩家）
+    try:
+        await manager.broadcast(game_id, game_start_msg)
+        logger.info(f"Broadcast game_started to game {game_id} successful")
+    except Exception as e:
+        logger.error(f"Broadcast game_started failed for game {game_id}: {e}")
 
     return ApiResponse.success(
         data=StartGameResponse(

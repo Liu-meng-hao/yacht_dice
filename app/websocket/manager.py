@@ -103,17 +103,22 @@ class ConnectionManager:
         逐个捕获异常，并移除失效连接，确保一个连接失败不会影响其他连接
         """
         if room_id not in self.active_connections or room_id not in self.player_connections:
+            logger.warning(f"Broadcast: No active connections for room/game {room_id}")
             return
         
         message_str = json.dumps(message)
         dead_player_ids = []
+        message_type = message.get("type", "unknown")
+        player_count = len(self.player_connections[room_id])
+        
+        logger.info(f"Broadcasting {message_type} to {player_count} players in room/game {room_id}")
         
         # 遍历 player_connections 而不是 active_connections，以便获取 player_id
         for player_id, websocket in list(self.player_connections[room_id].items()):
             try:
                 await websocket.send_text(message_str)
             except Exception as e:
-                logger.error(f"Broadcast failed for player {player_id} in room {room_id}: {e}")
+                logger.error(f"Broadcast failed for player {player_id} in room/game {room_id}: {e}")
                 dead_player_ids.append(player_id)
         
         # 清理无效连接
