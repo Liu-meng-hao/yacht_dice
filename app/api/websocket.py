@@ -143,13 +143,15 @@ async def room_websocket_endpoint(websocket: WebSocket, room_code: str, player_i
         player_id: 玩家ID
     """
     from app.db.session import SessionLocal
+    from app.api.room import build_room_response
+    from sqlalchemy.orm import joinedload
 
     db = SessionLocal()
     try:
         room = db.query(OnlineRoom).filter(
             OnlineRoom.room_code == room_code,
             OnlineRoom.is_deleted == 0
-        ).first()
+        ).options(joinedload(OnlineRoom.players).joinedload(RoomPlayer.user)).first()
 
         if not room:
             await websocket.close(code=1008)
@@ -166,11 +168,25 @@ async def room_websocket_endpoint(websocket: WebSocket, room_code: str, player_i
 
         player_name = player.player_name
 
+        # 构建房间快照
+        room_snapshot = {
+            "type": "room_updated",
+            "data": build_room_response(room)
+        }
+
     finally:
         db.close()
 
     success = await manager.connect(room_code, player_id, websocket, player_name)
     if not success:
+        return
+
+    # 连接成功后立即发送完整房间快照
+    try:
+        await websocket.send_text(json.dumps(room_snapshot))
+    except Exception as e:
+        logger.error(f"Failed to send room snapshot to player {player_id}: {e}")
+        manager.disconnect(room_code, player_id, websocket)
         return
 
     try:

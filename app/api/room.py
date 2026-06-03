@@ -225,14 +225,23 @@ async def join_room(
         OnlineRoom.id == room.id
     ).options(joinedload(OnlineRoom.players).joinedload(RoomPlayer.user)).first()
 
-    await manager.broadcast(room_code, {
-        "type": "room_updated",
-        "data": build_room_response(room_with_players)
-    })
+    room_response = build_room_response(room_with_players)
+
+    # 广播房间更新，捕获异常但不影响HTTP响应
+    room_code = request.room_code
+    try:
+        await manager.broadcast(room_code, {
+            "type": "room_updated",
+            "data": room_response
+        })
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Broadcast failed in join_room for room {room_code}: {e}")
 
     return ApiResponse.success(
         data=JoinRoomResponse(
-            room=build_room_response(room_with_players),
+            room=room_response,
             player_id=str(user.id)
         ),
         msg="加入房间成功"
@@ -272,13 +281,20 @@ async def leave_room(request: LeaveRoomRequest, db: Session = Depends(get_db), u
         db.delete(player)
         room.current_player_count -= 1
 
+        room_code = request.room_code
+
         if room.current_player_count == 0:
             room.is_deleted = 1
             db.commit()
-            await manager.broadcast(room_code, {
-                "type": "room_updated",
-                "data": None
-            })
+            try:
+                await manager.broadcast(room_code, {
+                    "type": "room_updated",
+                    "data": None
+                })
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Broadcast failed in leave_room for room {room_code}: {e}")
             return ApiResponse.success(msg="离开房间成功")
         elif is_host:
             first_player = db.query(RoomPlayer).filter(
@@ -294,10 +310,15 @@ async def leave_room(request: LeaveRoomRequest, db: Session = Depends(get_db), u
             OnlineRoom.id == room.id
         ).options(joinedload(OnlineRoom.players).joinedload(RoomPlayer.user)).first()
 
-        await manager.broadcast(room_code, {
-            "type": "room_updated",
-            "data": build_room_response(room_after)
-        })
+        try:
+            await manager.broadcast(room_code, {
+                "type": "room_updated",
+                "data": build_room_response(room_after)
+            })
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Broadcast failed in leave_room for room {room_code}: {e}")
 
         return ApiResponse.success(msg="离开房间成功")
     except Exception as e:
@@ -350,29 +371,44 @@ async def kick_player(room_code: str, request: KickPlayerRequest, db: Session = 
         if room.current_player_count == 0:
             room.is_deleted = 1
             db.commit()
-            await manager.broadcast(room_code, {
-                "type": "room_updated",
-                "data": None
-            })
+            try:
+                await manager.broadcast(room_code, {
+                    "type": "room_updated",
+                    "data": None
+                })
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Broadcast failed in kick_player for room {room_code}: {e}")
         else:
             db.commit()
             room_after = db.query(OnlineRoom).filter(
                 OnlineRoom.id == room.id
             ).options(joinedload(OnlineRoom.players).joinedload(RoomPlayer.user)).first()
 
-            await manager.broadcast(room_code, {
-                "type": "room_updated",
-                "data": build_room_response(room_after)
-            })
+            try:
+                await manager.broadcast(room_code, {
+                    "type": "room_updated",
+                    "data": build_room_response(room_after)
+                })
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Broadcast failed in kick_player for room {room_code}: {e}")
 
-        await manager.send_personal_message(room_code, target_player_id_str, {
-            "type": "player_kicked",
-            "data": {
-                "room_code": room_code,
-                "player_id": request.target_player_id,
-                "message": "你已被房主移出房间"
-            }
-        })
+        try:
+            await manager.send_personal_message(room_code, target_player_id_str, {
+                "type": "player_kicked",
+                "data": {
+                    "room_code": room_code,
+                    "player_id": request.target_player_id,
+                    "message": "你已被房主移出房间"
+                }
+            })
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Send personal message failed in kick_player for player {target_player_id_str}: {e}")
 
         if room.current_player_count > 0:
             room_after = db.query(OnlineRoom).filter(
@@ -494,10 +530,30 @@ async def start_game(room_code: str, db: Session = Depends(get_db), user: User =
     room.game_id = int(game_id)
     db.commit()
 
-    await manager.broadcast(room_code, {
-        "type": "room_updated",
-        "data": build_room_response(room)
-    })
+    # 广播房间更新
+    try:
+        await manager.broadcast(room_code, {
+            "type": "room_updated",
+            "data": build_room_response(room)
+        })
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Broadcast room_updated failed in start_game for room {room_code}: {e}")
+
+    # 广播游戏开始
+    try:
+        await manager.broadcast(room_code, {
+            "type": "game_started",
+            "data": {
+                "gameId": game_id,
+                "roomCode": room_code
+            }
+        })
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Broadcast game_started failed in start_game for room {room_code}: {e}")
 
     return ApiResponse.success(
         data=StartGameResponse(
@@ -534,10 +590,15 @@ async def dissolve_room(room_code: str, db: Session = Depends(get_db), user: Use
     room.is_deleted = 1
     db.commit()
 
-    await manager.broadcast(room_code, {
-        "type": "room_updated",
-        "data": None
-    })
+    try:
+        await manager.broadcast(room_code, {
+            "type": "room_updated",
+            "data": None
+        })
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Broadcast failed in dissolve_room for room {room_code}: {e}")
 
     return ApiResponse.success(msg="房间已解散")
 
@@ -584,12 +645,19 @@ async def set_ready(room_code: str, request: ReadyRequest, db: Session = Depends
             OnlineRoom.id == room.id
         ).options(joinedload(OnlineRoom.players).joinedload(RoomPlayer.user)).first()
 
-        await manager.broadcast(room_code, {
-            "type": "room_updated",
-            "data": build_room_response(room_after)
-        })
+        room_response = build_room_response(room_after)
 
-        return ApiResponse.success(data=build_room_response(room_after), msg="设置成功")
+        try:
+            await manager.broadcast(room_code, {
+                "type": "room_updated",
+                "data": room_response
+            })
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Broadcast failed in set_ready for room {room_code}: {e}")
+
+        return ApiResponse.success(data=room_response, msg="设置成功")
 
     except Exception as e:
         db.rollback()
