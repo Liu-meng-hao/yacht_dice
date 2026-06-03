@@ -136,8 +136,7 @@ async def create_room(
         room_player = RoomPlayer(
             room=room,
             user_id=user.id,
-            client_id=user.client_id,
-            player_name=request.player_name,
+            player_name=user.nickname,
             is_host=True,
             is_ready=True
         )
@@ -211,8 +210,7 @@ async def join_room(
     player = RoomPlayer(
         room_id=room.id,
         user_id=user.id,
-        client_id=user.client_id,
-        player_name=request.player_name,
+        player_name=user.nickname,
         is_host=False,
         is_ready=False
     )

@@ -143,72 +143,76 @@ class GameData:
 class GameManager:
     
     @classmethod
-    def create_game(cls, game_mode: str, players: List[dict]) -> GameData:
+    def create_game(cls, game_mode: str, player_name: str, client_id: str = None, ai_difficulty: str = "easy") -> dict:
         """创建新游戏
         
         Args:
-            game_mode: 游戏模式 (local/ai/online)
-            players: 玩家列表
-                - 在线模式: [{"user_id": int, "player_name": str, "is_ai": bool}, ...]
-                - 本地/AI模式: [{"player_name": str, "is_ai": bool}, ...]
+            game_mode: 游戏模式 (ai/online)
+            player_name: 玩家名称
+            client_id: 游客模式下的客户端ID（可选，None表示登录用户）
+            ai_difficulty: AI难度：easy/medium/hard
+            
+        Returns:
+            dict: 包含 game_id, player_id, user_type, has_points, current_points
         """
         db = SessionLocal()
         try:
-            mode_map = {"local": 1, "ai": 2, "online": 3}
-            game_mode_db = mode_map.get(game_mode, 1)
+            mode_map = {"ai": 2, "online": 3}
+            game_mode_db = mode_map.get(game_mode, 2)
             
             users = []
+            is_guest = client_id is not None
+            first_player_id = None
+            current_points = None
             
-            if game_mode == "online":
+            if game_mode == "ai":
+                # AI模式：固定为1v1（1个真人 + 1个AI）
+                # 1. 创建/获取真人玩家
+                if is_guest:
+                    # 游客模式：创建临时用户（不持久化积分）
+                    guest_user = User(
+                        client_id=client_id,
+                        nickname=player_name,
+                        user_type=1,
+                        points=0
+                    )
+                    db.add(guest_user)
+                    db.flush()
+                    users.append((guest_user, False))
+                    first_player_id = guest_user.id
+                    has_points = False
+                else:
+                    # 登录用户：使用现有用户
+                    db_user = db.query(User).filter(User.nickname == player_name).first()
+                    if not db_user:
+                        raise Exception("用户不存在")
+                    users.append((db_user, False))
+                    first_player_id = db_user.id
+                    has_points = True
+                    current_points = db_user.points
+                
+                # 2. 获取AI用户
+                ai_difficulty_map = {"easy": 1, "medium": 2, "hard": 3}
+                ai_level = ai_difficulty_map.get(ai_difficulty, 1)
+                ai_user = db.query(User).filter(
+                    User.user_type == 2,
+                    User.ai_difficulty == ai_level
+                ).first()
+                if not ai_user:
+                    # 如果没有找到对应难度的AI，使用默认AI
+                    ai_user = db.query(User).filter(User.user_type == 2).first()
+                    if not ai_user:
+                        raise Exception("没有可用的AI用户")
+                users.append((ai_user, True))
+            
+            elif game_mode == "online":
                 # 在线模式：使用房间中已有的用户
-                for i, player in enumerate(players):
-                    user_id = player.get("user_id")
-                    player_name = player.get("player_name", f"Player{i + 1}")
-                    is_ai = player.get("is_ai", False)
-                    
-                    if user_id:
-                        # 查询已存在的用户
-                        db_user = db.query(User).filter(User.id == user_id).first()
-                        if db_user:
-                            users.append((db_user, is_ai))
-                            continue
-                    
-                    # 如果没有找到用户，创建新用户（备用方案）
-                    client_id = f"game-{datetime.now().strftime('%Y%m%d%H%M%S')}-{i}"
-                    sanitized_name = sanitize_nickname(player_name)
-                    if not sanitized_name:
-                        sanitized_name = f"Player{i + 1}"
-                    
-                    db_user = User(
-                        client_id=client_id,
-                        nickname=sanitized_name,
-                        user_type=2 if is_ai else 1,
-                        ai_difficulty=2 if is_ai else None
-                    )
-                    db.add(db_user)
-                    db.flush()
-                    users.append((db_user, is_ai))
-            else:
-                # 本地/AI模式：创建新用户
-                for i, player in enumerate(players):
-                    name = player.get("player_name", f"Player{i + 1}")
-                    is_ai = player.get("is_ai", (game_mode == "ai" and i > 0))
-                    client_id = f"game-{datetime.now().strftime('%Y%m%d%H%M%S')}-{i}"
-                    
-                    sanitized_name = sanitize_nickname(name)
-                    if not sanitized_name:
-                        sanitized_name = f"Player{i + 1}"
-                    
-                    db_user = User(
-                        client_id=client_id,
-                        nickname=sanitized_name,
-                        user_type=2 if is_ai else 1,
-                        ai_difficulty=2 if is_ai else None
-                    )
-                    db.add(db_user)
-                    db.flush()
-                    users.append((db_user, is_ai))
+                raise NotImplementedError("在线模式需要通过房间接口创建")
             
+            else:
+                raise Exception("不支持的游戏模式")
+            
+            # 创建游戏记录
             db_game = GameModel(
                 game_mode=game_mode_db,
                 player_count=len(users),
@@ -220,6 +224,7 @@ class GameManager:
             db.add(db_game)
             db.flush()
             
+            # 创建玩家记录
             for idx, (user, is_ai) in enumerate(users):
                 db_player = GamePlayer(
                     game_id=db_game.id,
@@ -234,7 +239,7 @@ class GameManager:
                 )
                 db.add(db_player)
             
-            first_player_id = users[0][0].id
+            # 创建初始回合
             db_round = GameRound(
                 game_id=db_game.id,
                 round_number=1,
@@ -249,13 +254,28 @@ class GameManager:
             db.commit()
             game_id = db_game.id
             
+            # 使用新会话验证游戏是否真正持久化
+            verify_db = SessionLocal()
+            try:
+                verified_game = verify_db.query(GameModel).filter(GameModel.id == game_id).first()
+                if not verified_game:
+                    raise Exception("游戏创建失败：数据库未持久化")
+            finally:
+                verify_db.close()
+            
+            return {
+                "game_id": str(game_id),
+                "player_id": str(first_player_id),
+                "user_type": "guest" if is_guest else "token",
+                "has_points": has_points,
+                "current_points": current_points
+            }
+        
         except Exception as e:
             db.rollback()
             raise e
         finally:
             db.close()
-        
-        return GameData(game_id)
     
     @classmethod
     def get_game(cls, game_id: str):

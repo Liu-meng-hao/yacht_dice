@@ -97,17 +97,13 @@ class GameRulesResponse(CamelCaseBaseModel):
 # ========================================
 
 class CreateRoomRequest(BaseModel):
-    client_id: str = Field(description="客户端ID（用于关联用户）")
-    player_name: str = Field(description="玩家名称")
     room_name: Optional[str] = Field(default=None, description="房间名称（可选）")
     max_players: int = Field(default=4, ge=2, le=4, description="最大玩家数（2-4）")
     game_mode: GameMode = Field(default=GameMode.ONLINE, description="游戏模式")
 
 
 class JoinRoomRequest(BaseModel):
-    client_id: str = Field(description="客户端ID（用于关联用户）")
     room_code: str = Field(description="房间号")
-    player_name: str = Field(description="玩家名称")
 
 
 class LeaveRoomRequest(BaseModel):
@@ -177,12 +173,17 @@ class StartGameResponse(CamelCaseBaseModel):
 
 class CreateGameRequest(BaseModel):
     game_mode: GameMode = Field(description="游戏模式")
-    player_names: List[str] = Field(description="玩家名称列表")
+    player_name: str = Field(description="玩家名称")
+    client_id: Optional[str] = Field(default=None, description="游客模式下的客户端ID（可选）")
+    ai_difficulty: Optional[str] = Field(default="easy", description="AI难度：easy/medium/hard")
 
 
 class CreateGameResponse(CamelCaseBaseModel):
     game_id: str = Field(description="游戏ID")
     player_id: str = Field(description="创建者玩家ID")
+    user_type: str = Field(description="用户类型: guest/token")
+    has_points: bool = Field(description="是否有积分功能")
+    current_points: Optional[int] = Field(default=None, description="当前积分（仅登录用户）")
 
 
 class DiceRollRequest(BaseModel):
