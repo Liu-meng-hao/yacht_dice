@@ -23,6 +23,33 @@ class LeaderboardItem(BaseModel):
     total_wins: int
 
 
+class UpdateGamesRequest(BaseModel):
+    """更新总对局次数请求模型"""
+    winner_id: int = Field(..., description="胜利玩家ID")
+    game_mode: str = Field(..., description="游戏模式：local（本地）、ai（AI对战）、online（联机对战）")
+
+
+class UpdateGamesResponse(BaseModel):
+    """更新总对局次数响应模型"""
+    user_id: int
+    total_games: int
+    message: str
+
+
+class TotalGamesLeaderboardItem(BaseModel):
+    """总对局次数排行榜项模型"""
+    rank: int
+    user_id: int
+    nickname: Optional[str] = None
+    total_games: int
+
+
+class TotalGamesLeaderboardResponse(BaseModel):
+    """总对局次数排行榜响应模型"""
+    leaderboard: List[TotalGamesLeaderboardItem]
+    total_count: int
+
+
 class LeaderboardResponse(BaseModel):
     """排行榜响应模型"""
     leaderboard: List[LeaderboardItem]
