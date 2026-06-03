@@ -146,6 +146,7 @@ class RoomResponse(CamelCaseBaseModel):
     players: List[RoomPlayer] = Field(description="玩家列表")
     status: RoomStatus = Field(description="房间状态")
     host_id: Optional[str] = Field(default=None, description="房主ID")
+    game_id: Optional[str] = Field(default=None, description="游戏ID（仅 playing 状态时返回）")
 
 
 class RoomListItem(CamelCaseBaseModel):
