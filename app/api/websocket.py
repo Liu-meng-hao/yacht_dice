@@ -10,6 +10,7 @@ from datetime import datetime
 from enum import Enum
 from pydantic import BaseModel, ValidationError
 import logging
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,7 @@ class MessageType(str, Enum):
     PING = "ping"
     PONG = "pong"
     ERROR = "error"
+    GAME_STATE = "game_state"
 
 
 class GameMessage(BaseModel):
@@ -81,6 +83,29 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str, player_id: str)
         return
     
     try:
+        # 连接成功后立即发送游戏状态快照
+        game_data = GameManager.get_game(game_id)
+        if game_data:
+            game_dict = game_data.to_dict()
+            game_data.close()
+            
+            # 发送游戏状态
+            await websocket.send_text(json.dumps({
+                "type": "game_state",
+                "game_state": game_dict,
+                "timestamp": datetime.now().isoformat()
+            }))
+            
+            # 检查是否需要恢复AI回合
+            from app.game.ai_controller import AIGameController
+            from app.game.ai_task_manager import ai_task_manager
+            
+            if game_dict["status"] == "playing":
+                current_player_data = next((p for p in game_dict["players"] if p["player_id"] == game_dict["current_player"]), None)
+                if current_player_data and current_player_data.get("is_ai"):
+                    # 短暂延迟后检查并恢复AI任务
+                    asyncio.create_task(AIGameController.check_and_resume_ai_turn(game_id))
+        
         while True:
             data = await websocket.receive_text()
             

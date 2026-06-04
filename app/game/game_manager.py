@@ -12,6 +12,8 @@ from app.models.user import User
 from app.game.dice import DiceManager
 from app.game.scoring import ScoreCalculator
 from app.core.security import validate_nickname, sanitize_nickname, escape_html
+from app.game.ai_controller import AIGameController
+from app.game.ai_task_manager import ai_task_manager
 
 
 class GameData:
@@ -375,7 +377,8 @@ class GameManager:
         if next_idx == 0:
             game_data.db_round.round_number += 1
         
-        game_data.db_round.current_player_id = players[next_idx].user_id
+        next_player = players[next_idx]
+        game_data.db_round.current_player_id = next_player.user_id
         game_data.db_round.dice_data = json.dumps([1, 1, 1, 1, 1])
         game_data.db_round.reroll_count = 3
         
@@ -386,6 +389,11 @@ class GameManager:
             game_data.db_game.winner_id = winner.user_id
             game_data.db_round.round_status = 3
             game_data.db_round.end_time = datetime.now()
+            return
+        
+        # 检查下一玩家是否是AI，如果是则异步启动AI回合
+        # 注意：这里不直接启动任务，而是在提交分数的API返回后启动，
+        # 因为需要先commit数据库并广播状态
     
     @classmethod
     def _is_game_finished(cls, game_data: GameData) -> bool:
