@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends
 from typing import Optional
 import re
 from datetime import datetime
+import asyncio
 from app.schemas.game import (
     GameMode,
     GameStatus,
@@ -24,6 +25,8 @@ from app.websocket.manager import manager
 from app.core.dependencies import get_current_user_optional
 from app.models.user import User
 from fastapi import HTTPException
+from app.game.ai_controller import AIGameController
+from app.game.ai_task_manager import ai_task_manager
 
 router = APIRouter(tags=["游戏"])
 
@@ -168,6 +171,22 @@ async def roll_dice(game_id: str, request: DiceRollRequest, user: Optional[User]
         game_data.close()
         return ApiResponse.error(msg="在线模式需要登录", code=401)
     
+    # 检查是否是AI回合，禁止人类操作
+    if ai_task_manager.is_ai_turn_running(game_id):
+        game_data.close()
+        return ApiResponse.error(msg="AI正在思考中，请稍后", code=400)
+    
+    # 验证是否是当前玩家
+    current_player = game_data.get_current_player()
+    if not current_player or str(current_player.user_id) != request.player_id:
+        game_data.close()
+        return ApiResponse.error(msg="不是你的回合", code=400)
+    
+    # 禁止AI玩家通过HTTP请求操作
+    if current_player.is_ai:
+        game_data.close()
+        return ApiResponse.error(msg="AI玩家自动操作中", code=400)
+    
     try:
         locked_indices = [i for i, locked in enumerate(request.locked_dice) if locked]
         dice = GameManager.roll_dice(game_data, request.player_id, locked_indices)
@@ -182,6 +201,7 @@ async def roll_dice(game_id: str, request: DiceRollRequest, user: Optional[User]
             "dice_locked": game_dict["dice_locked"],
             "rolls_left": game_dict["rolls_left"],
             "current_player": game_dict["current_player"],
+            "game_state": game_dict,
             "timestamp": datetime.now().isoformat()
         }
         await manager.broadcast(game_id, broadcast_msg)
@@ -312,14 +332,26 @@ async def submit_score(game_id: str, request: ScoreSubmitRequest, user: Optional
         game_data.close()
         return ApiResponse.error(msg="在线模式需要登录", code=401)
     
+    # 检查是否是AI回合，禁止人类操作
+    if ai_task_manager.is_ai_turn_running(game_id):
+        game_data.close()
+        return ApiResponse.error(msg="AI正在思考中，请稍后", code=400)
+    
+    # 验证是否是当前玩家
+    current_player = game_data.get_current_player()
+    if not current_player or str(current_player.user_id) != request.player_id:
+        game_data.close()
+        return ApiResponse.error(msg="不是你的回合", code=400)
+    
+    # 禁止AI玩家通过HTTP请求操作
+    if current_player.is_ai:
+        game_data.close()
+        return ApiResponse.error(msg="AI玩家自动操作中", code=400)
+    
     try:
         import logging
         logger = logging.getLogger(__name__)
         logger.info(f"submit_score called with game_id={game_id}, player_id={request.player_id}, category={request.category}")
-        
-        current_player = game_data.get_current_player()
-        logger.info(f"Current player: {current_player.user_id if current_player else None}")
-        logger.info(f"Is your turn: {str(current_player.user_id) == request.player_id if current_player else False}")
         
         result = GameManager.submit_score(game_data, request.player_id, request.category)
         logger.info(f"submit_score result: {result}")
@@ -335,16 +367,7 @@ async def submit_score(game_id: str, request: ScoreSubmitRequest, user: Optional
             "category": request.category,
             "score": result["score"],
             "total_score": result["total_score"],
-            "game_state": {
-                "game_id": game_dict["game_id"],
-                "game_mode": game_dict["game_mode"],
-                "current_player": game_dict["current_player"],
-                "players": game_dict["players"],
-                "dice": game_dict["dice"],
-                "dice_locked": game_dict["dice_locked"],
-                "rolls_left": game_dict["rolls_left"],
-                "status": game_dict["status"]
-            },
+            "game_state": game_dict,
             "next_player": next_player,
             "is_game_finished": (game_dict["status"] == "finished"),
             "timestamp": datetime.now().isoformat()
@@ -352,6 +375,13 @@ async def submit_score(game_id: str, request: ScoreSubmitRequest, user: Optional
         await manager.broadcast(game_id, broadcast_msg)
 
         game_data.close()
+
+        # 如果游戏未结束且下一玩家是AI，启动AI任务
+        if game_dict["status"] == "playing" and next_player:
+            next_player_data = next((p for p in game_dict["players"] if p["player_id"] == next_player), None)
+            if next_player_data and next_player_data.get("is_ai"):
+                # 异步启动AI任务，不阻塞当前响应
+                asyncio.create_task(ai_task_manager.start_ai_task(game_id, AIGameController.execute_ai_turn(game_id)))
 
         return ApiResponse.success(
             data=ScoreSubmitResponse(
