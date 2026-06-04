@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends
 from typing import Optional
 import re
+import uuid
 from datetime import datetime
 from app.schemas.game import (
     GameMode,
@@ -31,7 +32,10 @@ router = APIRouter(tags=["游戏"])
 @router.post(
     "/create",
     summary="创建游戏",
-    description="创建新游戏，支持人机对战模式。游客可直接玩AI模式（无积分），登录用户可玩AI模式（有积分）。",
+    description="创建新游戏，支持三种模式：\n"
+                "- local（本地单人）：必须登录用户\n"
+                "- ai（人机对战）：游客可用client_id玩（不记录积分），登录用户也可玩（记录积分）\n"
+                "- online（在线联机）：必须登录，通过房间接口创建",
     responses={
         200: {
             "model": ApiResponseModel[CreateGameResponse],
@@ -41,25 +45,53 @@ router = APIRouter(tags=["游戏"])
 )
 async def create_game(request: CreateGameRequest, user: Optional[User] = Depends(get_current_user_optional)):
     try:
+        # LOCAL模式：必须是登录用户，忽略 client_id
+        if request.game_mode == GameMode.LOCAL:
+            if not user:
+                raise HTTPException(status_code=401, detail="本地模式需要登录")
+            
+            # 使用用户昵称
+            player_name = request.player_name or user.nickname
+            
+            result = GameManager.create_game(
+                game_mode=request.game_mode.value,
+                player_name=player_name,
+                client_id=None
+            )
+            
+            return ApiResponse.success(
+                data=CreateGameResponse(
+                    game_id=result["game_id"],
+                    player_id=result["player_id"],
+                    user_type=result["user_type"],
+                    has_points=result["has_points"],
+                    current_points=result["current_points"]
+                ),
+                msg="游戏创建成功"
+            )
+        
         # AI模式：游客和登录用户都可以玩
-        if request.game_mode == GameMode.AI:
+        elif request.game_mode == GameMode.AI:
             # 判断是游客还是登录用户
             if user:
-                # 登录用户：使用用户昵称，不需要 client_id
+                # 登录用户：使用用户昵称，不需要 client_id，记录积分
+                player_name = request.player_name or user.nickname
                 result = GameManager.create_game(
                     game_mode=request.game_mode.value,
-                    player_name=user.nickname,
-                    client_id=None,
+                    player_name=player_name,
+                    client_id=None,  # 登录用户忽略 client_id
                     ai_difficulty=request.ai_difficulty
                 )
             else:
-                # 游客：必须提供 client_id
-                if not request.client_id:
-                    raise HTTPException(status_code=400, detail="游客模式需要提供 client_id")
+                # 游客：后端自动生成 client_id，不记录积分
+                # 如果前端传递了 client_id 则使用，否则自动生成
+                client_id = request.client_id or f"guest_{uuid.uuid4().hex[:12]}"
+                # 使用前端传递的 player_name，若无则使用默认名称
+                player_name = request.player_name or f"游客{client_id[-8:]}"
                 result = GameManager.create_game(
                     game_mode=request.game_mode.value,
-                    player_name=request.player_name,
-                    client_id=request.client_id,
+                    player_name=player_name,
+                    client_id=client_id,
                     ai_difficulty=request.ai_difficulty
                 )
             

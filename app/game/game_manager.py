@@ -147,7 +147,7 @@ class GameManager:
         """创建新游戏
         
         Args:
-            game_mode: 游戏模式 (ai/online)
+            game_mode: 游戏模式 (local/ai/online)
             player_name: 玩家名称
             client_id: 游客模式下的客户端ID（可选，None表示登录用户）
             ai_difficulty: AI难度：easy/medium/hard
@@ -157,19 +157,43 @@ class GameManager:
         """
         db = SessionLocal()
         try:
-            mode_map = {"ai": 2, "online": 3}
-            game_mode_db = mode_map.get(game_mode, 2)
+            mode_map = {"local": 1, "ai": 2, "online": 3}
+            game_mode_db = mode_map.get(game_mode, 1)
             
             users = []
             is_guest = client_id is not None
             first_player_id = None
             current_points = None
+            has_points = False
             
-            if game_mode == "ai":
-                # AI模式：固定为1v1（1个真人 + 1个AI）
+            if game_mode == "local":
+                # 本地单人模式：必须是登录用户
+                if is_guest:
+                    raise Exception("本地模式需要登录")
+                
+                db_user = db.query(User).filter(User.nickname == player_name).first()
+                if not db_user:
+                    raise Exception("用户不存在")
+                users.append((db_user, False))
+                first_player_id = db_user.id
+                has_points = True
+                current_points = db_user.points
+            
+            elif game_mode == "ai":
+                # AI模式：游客和登录用户都可以玩
                 # 1. 创建/获取真人玩家
                 if is_guest:
-                    # 游客模式：创建临时用户（不持久化积分）
+                    # 游客模式：创建临时用户（不记录积分到数据库）
+                    # 检查昵称是否已存在，如果存在则添加后缀
+                    base_nickname = player_name
+                    counter = 1
+                    while True:
+                        existing_user = db.query(User).filter(User.nickname == player_name).first()
+                        if not existing_user:
+                            break
+                        player_name = f"{base_nickname}_{counter}"
+                        counter += 1
+                    
                     guest_user = User(
                         client_id=client_id,
                         nickname=player_name,
@@ -182,7 +206,7 @@ class GameManager:
                     first_player_id = guest_user.id
                     has_points = False
                 else:
-                    # 登录用户：使用现有用户
+                    # 登录用户：使用现有用户，记录积分
                     db_user = db.query(User).filter(User.nickname == player_name).first()
                     if not db_user:
                         raise Exception("用户不存在")
@@ -199,7 +223,6 @@ class GameManager:
                     User.ai_difficulty == ai_level
                 ).first()
                 if not ai_user:
-                    # 如果没有找到对应难度的AI，使用默认AI
                     ai_user = db.query(User).filter(User.user_type == 2).first()
                     if not ai_user:
                         raise Exception("没有可用的AI用户")
