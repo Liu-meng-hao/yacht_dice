@@ -34,7 +34,10 @@ router = APIRouter(tags=["游戏"])
 @router.post(
     "/create",
     summary="创建游戏",
-    description="创建新游戏，支持人机对战模式（需要登录）。",
+    description="创建新游戏，支持三种模式：\n"
+                "- local（本地单人）：必须登录用户\n"
+                "- ai（人机对战）：游客可用client_id玩（不记录积分），登录用户也可玩（记录积分）\n"
+                "- online（在线联机）：必须登录，通过房间接口创建",
     responses={
         200: {
             "model": ApiResponseModel[CreateGameResponse],
@@ -44,13 +47,51 @@ router = APIRouter(tags=["游戏"])
 )
 async def create_game(request: CreateGameRequest, user: User = Depends(get_current_user)):
     try:
-        # AI模式：仅登录用户可以玩
-        if request.game_mode == GameMode.AI:
+        # LOCAL模式：必须是登录用户，必须传 player_name
+        if request.game_mode == GameMode.LOCAL:
+            if not user:
+                raise HTTPException(status_code=401, detail="本地模式需要登录")
+
+            if not request.player_name:
+                raise HTTPException(status_code=400, detail="本地模式需要提供 player_name")
+
             result = GameManager.create_game(
                 game_mode=request.game_mode.value,
-                player_name=user.nickname,
-                ai_difficulty=request.ai_difficulty
+                player_name=request.player_name
             )
+
+            return ApiResponse.success(
+                data=CreateGameResponse(
+                    game_id=result["game_id"],
+                    player_id=result["player_id"],
+                    user_type=result["user_type"],
+                    has_points=result["has_points"],
+                    current_points=result["current_points"]
+                ),
+                msg="游戏创建成功"
+            )
+
+        # AI模式：游客和登录用户都可以玩
+        elif request.game_mode == GameMode.AI:
+            # 判断是游客还是登录用户
+            if user:
+                # 登录用户：必须传 player_name，记录积分
+                if not request.player_name:
+                    raise HTTPException(status_code=400, detail="AI模式（登录用户）需要提供 player_name")
+
+                result = GameManager.create_game(
+                    game_mode=request.game_mode.value,
+                    player_name=request.player_name,
+                    ai_difficulty=request.ai_difficulty
+                )
+            else:
+                # 游客：后端自动生成 client_id，不记录积分
+                # player_name 可选，不传则使用默认名称
+                result = GameManager.create_game(
+                    game_mode=request.game_mode.value,
+                    player_name=request.player_name,
+                    ai_difficulty=request.ai_difficulty
+                )
             
             return ApiResponse.success(
                 data=CreateGameResponse(

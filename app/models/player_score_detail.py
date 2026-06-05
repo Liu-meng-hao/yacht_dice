@@ -1,4 +1,4 @@
-from sqlalchemy import Column, BigInteger, Integer, DateTime
+from sqlalchemy import Column, BigInteger, Integer, DateTime, UniqueConstraint
 from sqlalchemy.sql import func
 from sqlalchemy import ForeignKey
 from app.db.session import Base
@@ -15,3 +15,7 @@ class PlayerScoreDetail(Base):
     score_value = Column(Integer, nullable=False, default=0, comment="得分值")
     submit_time = Column(DateTime, nullable=True, comment="提交时间")
     create_time = Column(DateTime, server_default=func.now(), comment="创建时间")
+    
+    __table_args__ = (
+        UniqueConstraint('game_id', 'player_id', 'score_item_id', name='uk_p_item'),
+    )

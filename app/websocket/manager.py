@@ -19,13 +19,24 @@ class ConnectionManager:
         self.player_connections: Dict[str, Dict[str, WebSocket]] = {}
         self.connection_timestamps: Dict[str, Dict[WebSocket, float]] = {}
         self.player_info: Dict[str, Dict[str, str]] = {}  # room_id -> {player_id -> player_name}
+        self._heartbeat_task_started = False
         
-        # 启动心跳检测协程
-        asyncio.create_task(self._check_connections())
+    def _start_heartbeat_if_needed(self):
+        """延迟启动心跳检测协程，避免初始化时没有事件循环"""
+        if not self._heartbeat_task_started:
+            try:
+                asyncio.create_task(self._check_connections())
+                self._heartbeat_task_started = True
+            except RuntimeError:
+                # 如果没有运行的事件循环，忽略，等待第一个连接时再尝试
+                pass
     
     async def connect(self, room_id: str, player_id: str, websocket: WebSocket, player_name: str = None):
         """建立连接"""
         await websocket.accept()
+        
+        # 延迟启动心跳检测
+        self._start_heartbeat_if_needed()
         
         # 检查房间连接数限制
         if room_id in self.active_connections:
