@@ -78,10 +78,12 @@ async def update_wins(
         )
 
 
+from datetime import datetime
+
 @router.post(
     "/update-games",
     summary="更新总对局次数",
-    description="游戏结束时，更新胜利玩家的total_games字段（任何游戏模式都生效）"
+    description="游戏结束时，更新胜利玩家的total_games字段和last_play_time（任何游戏模式都生效）"
 )
 async def update_games(
     request: UpdateGamesRequest,
@@ -92,6 +94,7 @@ async def update_games(
     
     - **winner_id**: 胜利玩家的ID
     - **game_mode**: 游戏模式：local（本地）、ai（AI对战）、online（联机对战）
+    - **last_play_time**: 最后一次获胜时间（ISO格式字符串）
     """
     # 验证游戏模式参数
     valid_game_modes = ["local", "ai", "online"]
@@ -116,6 +119,18 @@ async def update_games(
     
     # 任何游戏模式都更新总对局次数
     user.total_games += 1
+    
+    # 更新最后游戏时间
+    if request.last_play_time:
+        try:
+            # 解析 ISO 格式的时间字符串
+            user.last_play_time = datetime.fromisoformat(request.last_play_time.replace("Z", "+00:00"))
+        except ValueError:
+            return JSONResponse(
+                content={"code": 400, "msg": "无效的时间格式，请使用ISO格式（如：2024-01-01T12:00:00）", "data": None},
+                media_type="application/json"
+            )
+    
     db.commit()
     db.refresh(user)
     
@@ -126,6 +141,7 @@ async def update_games(
             "data": {
                 "user_id": user.id,
                 "total_games": user.total_games,
+                "last_play_time": user.last_play_time.isoformat() if user.last_play_time else None,
                 "message": "总对局次数更新成功"
             }
         },
@@ -136,7 +152,7 @@ async def update_games(
 @router.get(
     "/ranking-games",
     summary="获取总对局次数排行榜",
-    description="获取按照total_games降序排列的用户排行榜"
+    description="获取按照total_games降序排列的用户排行榜（包含最后游戏时间）"
 )
 async def get_games_leaderboard(
     limit: int = 10,
@@ -166,7 +182,8 @@ async def get_games_leaderboard(
             "rank": rank,
             "user_id": user.id,
             "nickname": user.nickname,
-            "total_games": user.total_games
+            "total_games": user.total_games,
+            "last_play_time": user.last_play_time.isoformat() if user.last_play_time else None
         })
     
     total_count = db.query(User).filter(
