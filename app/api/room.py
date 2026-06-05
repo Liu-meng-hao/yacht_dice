@@ -471,19 +471,17 @@ async def start_game(room_code: str, db: Session = Depends(get_db), user: User =
         return ApiResponse.error(msg="房间已开始游戏", code=409)
 
     if room.current_player_count < 2:
-        return ApiResponse.error(msg="至少需要2名玩家", code=400)
+        return ApiResponse.error(msg="至少需要 2 名玩家", code=400)
 
-    # 构建玩家列表（包含用户ID，以便复用已存在的用户）
-    players = []
-    for p in room.players:
-        players.append({
-            "user_id": p.user_id,
-            "player_name": p.player_name,
-            "is_ai": False,
-            "client_id": None  # 在线模式都是登录用户，不需要 client_id
-        })
-    
-    game_data = GameManager.create_game("online", players)
+    # 检查所有玩家是否都已准备
+    not_ready_players = [p for p in room.players if not p.is_ready]
+    if not_ready_players:
+        not_ready_names = [p.player_name for p in not_ready_players]
+        return ApiResponse.error(msg=f"以下玩家还未准备：{', '.join(not_ready_names)}", code=400)
+
+    # 通过房间码创建游戏
+    result = GameManager.create_game("online", room_code=room.room_code)
+    game_data = result["_game_data"]
     GameManager.start_game(game_data)
     game_dict = game_data.to_dict()
     game_id = game_dict["game_id"]
