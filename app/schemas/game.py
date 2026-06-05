@@ -173,8 +173,8 @@ class StartGameResponse(CamelCaseBaseModel):
 
 class CreateGameRequest(BaseModel):
     game_mode: GameMode = Field(description="游戏模式")
-    player_name: str = Field(description="玩家名称")
-    client_id: Optional[str] = Field(default=None, description="游客模式下的客户端ID（可选）")
+    player_name: Optional[str] = Field(default=None, description="玩家名称（可选，登录用户优先使用Token中的昵称）")
+    room_code: Optional[str] = Field(default=None, description="房间码（仅online模式使用）")
     ai_difficulty: Optional[str] = Field(default="easy", description="AI难度：easy/medium/hard")
 
 

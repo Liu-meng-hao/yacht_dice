@@ -27,7 +27,7 @@ def seed_score_items():
     try:
         existing_count = db.query(ScoreItem).count()
         if existing_count > 0:
-            print(f"⚠️  数据库中已有 {existing_count} 个计分项目，跳过插入")
+            print(f"数据库中已有 {existing_count} 个计分项目，跳过插入")
             return
         
         score_items_data = [
@@ -49,14 +49,14 @@ def seed_score_items():
         for item_data in score_items_data:
             item = ScoreItem(**item_data)
             db.add(item)
-            print(f"✅ 创建计分项: {item_data['item_name']}")
+            print(f"创建计分项: {item_data['item_name']}")
         
         db.commit()
-        print(f"\n✅ 共创建 {len(score_items_data)} 个计分项目")
+        print(f"\n共创建 {len(score_items_data)} 个计分项目")
         
     except Exception as e:
         db.rollback()
-        print(f"❌ 插入失败: {e}")
+        print(f"插入失败: {e}")
         sys.exit(1)
     finally:
         db.close()
@@ -70,7 +70,7 @@ def seed_users():
     try:
         existing_count = db.query(User).count()
         if existing_count > 0:
-            print(f"⚠️  数据库中已有 {existing_count} 个用户，跳过插入")
+            print(f"数据库中已有 {existing_count} 个用户，跳过插入")
             return
         
         users_data = [
@@ -84,14 +84,14 @@ def seed_users():
         for user_data in users_data:
             user = User(**user_data)
             db.add(user)
-            print(f"✅ 创建用户: {user_data['nickname']}")
+            print(f"创建用户: {user_data['nickname']}")
         
         db.commit()
-        print(f"\n✅ 共创建 {len(users_data)} 个用户")
+        print(f"\n共创建 {len(users_data)} 个用户")
         
     except Exception as e:
         db.rollback()
-        print(f"❌ 插入失败: {e}")
+        print(f"插入失败: {e}")
         sys.exit(1)
     finally:
         db.close()
@@ -105,7 +105,7 @@ def seed_game_records():
 
 def clear_all_data():
     """清空所有数据（谨慎使用！）"""
-    print("\n⚠️  警告：此操作将清空所有数据！")
+    print("\n【警告】此操作将清空所有数据！")
     confirm = input("确认清空？(输入 YES 确认): ")
     
     if confirm != "YES":
@@ -122,10 +122,10 @@ def clear_all_data():
         db.query(ScoreItem).delete()
         db.query(User).delete()
         db.commit()
-        print("✅ 所有数据已清空")
+        print("所有数据已清空")
     except Exception as e:
         db.rollback()
-        print(f"❌ 清空失败: {e}")
+        print(f"清空失败: {e}")
     finally:
         db.close()
 
@@ -142,4 +142,4 @@ if __name__ == "__main__":
         seed_score_items()
         seed_users()
         seed_game_records()
-        print("\n🎉 所有测试数据插入完成！")
+        print("\n所有测试数据插入完成！")

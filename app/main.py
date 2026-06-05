@@ -1,10 +1,14 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from pydantic import ValidationError
 from app.core.config import settings
 from app.core.logging_config import setup_logging
 from app.core.middleware import RequestLogMiddleware
 from app.api import health, home, room, game, websocket, score, settlement, auth, leaderboard
+from app.core.response import ApiResponse
 
 setup_logging()
 
@@ -150,6 +154,28 @@ async def root():
         "version": settings.PROJECT_VERSION,
         "message": "欢迎使用快艇骰子游戏后端API"
     }
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request, exc):
+    error_details = []
+    for error in exc.errors():
+        field = ".".join(str(x) for x in error["loc"])
+        message = error["msg"]
+        error_details.append(f"{field}: {message}")
+    
+    return ApiResponse.error(
+        msg=f"请求参数验证失败: {', '.join(error_details)}",
+        code=400
+    )
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request, exc):
+    return ApiResponse.error(
+        msg=str(exc.detail),
+        code=exc.status_code
+    )
 
 
 if __name__ == "__main__":
