@@ -22,7 +22,7 @@ from app.schemas.game import (
 from app.game.game_manager import GameManager
 from app.core.response import ApiResponse, ApiResponseModel
 from app.websocket.manager import manager
-from app.core.dependencies import get_current_user_optional
+from app.core.dependencies import get_current_user, get_current_user_optional
 from app.models.user import User
 from fastapi import HTTPException
 from app.game.ai_controller import AIGameController
@@ -34,7 +34,7 @@ router = APIRouter(tags=["游戏"])
 @router.post(
     "/create",
     summary="创建游戏",
-    description="创建新游戏，支持人机对战模式。游客可直接玩AI模式（无积分），登录用户可玩AI模式（有积分）。",
+    description="创建新游戏，支持人机对战模式（需要登录）。",
     responses={
         200: {
             "model": ApiResponseModel[CreateGameResponse],
@@ -42,36 +42,20 @@ router = APIRouter(tags=["游戏"])
         }
     }
 )
-async def create_game(request: CreateGameRequest, user: Optional[User] = Depends(get_current_user_optional)):
+async def create_game(request: CreateGameRequest, user: User = Depends(get_current_user)):
     try:
-        # AI模式：游客和登录用户都可以玩
+        # AI模式：仅登录用户可以玩
         if request.game_mode == GameMode.AI:
-            # 判断是游客还是登录用户
-            if user:
-                # 登录用户：使用用户昵称，不需要 client_id
-                result = GameManager.create_game(
-                    game_mode=request.game_mode.value,
-                    player_name=user.nickname,
-                    client_id=None,
-                    ai_difficulty=request.ai_difficulty
-                )
-            else:
-                # 游客：必须提供 client_id
-                if not request.client_id:
-                    raise HTTPException(status_code=400, detail="游客模式需要提供 client_id")
-                result = GameManager.create_game(
-                    game_mode=request.game_mode.value,
-                    player_name=request.player_name,
-                    client_id=request.client_id,
-                    ai_difficulty=request.ai_difficulty
-                )
+            result = GameManager.create_game(
+                game_mode=request.game_mode.value,
+                player_name=user.nickname,
+                ai_difficulty=request.ai_difficulty
+            )
             
             return ApiResponse.success(
                 data=CreateGameResponse(
                     game_id=result["game_id"],
                     player_id=result["player_id"],
-                    user_type=result["user_type"],
-                    has_points=result["has_points"],
                     current_points=result["current_points"]
                 ),
                 msg="游戏创建成功"

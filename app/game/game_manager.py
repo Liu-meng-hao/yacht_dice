@@ -145,17 +145,22 @@ class GameData:
 class GameManager:
     
     @classmethod
-    def create_game(cls, game_mode: str, player_name: str, client_id: str = None, ai_difficulty: str = "easy") -> dict:
-        """创建新游戏
+    def create_game(cls, game_mode: str, player_info, ai_difficulty: str = "easy") -> dict:
+        """创建新游戏（支持AI模式和在线模式）
+        
+        支持两种调用方式：
+        1. AI模式: create_game("ai", player_name, ai_difficulty)
+           - player_info: str 类型，玩家昵称
+        2. 在线模式: create_game("online", players_list)
+           - player_info: list 类型，包含多个玩家的字典列表
         
         Args:
             game_mode: 游戏模式 (ai/online)
-            player_name: 玩家名称
-            client_id: 游客模式下的客户端ID（可选，None表示登录用户）
-            ai_difficulty: AI难度：easy/medium/hard
+            player_info: 玩家信息（字符串或列表）
+            ai_difficulty: AI难度（仅AI模式使用，默认easy）
             
         Returns:
-            dict: 包含 game_id, player_id, user_type, has_points, current_points
+            dict: 包含 game_id, player_id, current_points
         """
         db = SessionLocal()
         try:
@@ -163,37 +168,20 @@ class GameManager:
             game_mode_db = mode_map.get(game_mode, 2)
             
             users = []
-            is_guest = client_id is not None
             first_player_id = None
             current_points = None
             
             if game_mode == "ai":
-                # AI模式：固定为1v1（1个真人 + 1个AI）
-                # 1. 创建/获取真人玩家
-                if is_guest:
-                    # 游客模式：创建临时用户（不持久化积分）
-                    guest_user = User(
-                        client_id=client_id,
-                        nickname=player_name,
-                        user_type=1,
-                        points=0
-                    )
-                    db.add(guest_user)
-                    db.flush()
-                    users.append((guest_user, False))
-                    first_player_id = guest_user.id
-                    has_points = False
-                else:
-                    # 登录用户：使用现有用户
-                    db_user = db.query(User).filter(User.nickname == player_name).first()
-                    if not db_user:
-                        raise Exception("用户不存在")
-                    users.append((db_user, False))
-                    first_player_id = db_user.id
-                    has_points = True
-                    current_points = db_user.points
+                # AI模式：player_info 是玩家名称字符串
+                player_name = player_info
+                db_user = db.query(User).filter(User.nickname == player_name).first()
+                if not db_user:
+                    raise Exception("用户不存在")
+                users.append((db_user, False))
+                first_player_id = db_user.id
+                current_points = db_user.points
                 
-                # 2. 获取AI用户
+                # 获取AI用户
                 ai_difficulty_map = {"easy": 1, "medium": 2, "hard": 3}
                 ai_level = ai_difficulty_map.get(ai_difficulty, 1)
                 ai_user = db.query(User).filter(
@@ -201,15 +189,22 @@ class GameManager:
                     User.ai_difficulty == ai_level
                 ).first()
                 if not ai_user:
-                    # 如果没有找到对应难度的AI，使用默认AI
                     ai_user = db.query(User).filter(User.user_type == 2).first()
                     if not ai_user:
                         raise Exception("没有可用的AI用户")
                 users.append((ai_user, True))
             
             elif game_mode == "online":
-                # 在线模式：使用房间中已有的用户
-                raise NotImplementedError("在线模式需要通过房间接口创建")
+                # 在线模式：player_info 是玩家列表
+                players = player_info
+                for idx, p in enumerate(players):
+                    db_user = db.query(User).filter(User.id == p["user_id"]).first()
+                    if not db_user:
+                        raise Exception(f"用户不存在: {p['user_id']}")
+                    users.append((db_user, p.get("is_ai", False)))
+                    if idx == 0:  # 第一个玩家作为创建者
+                        first_player_id = db_user.id
+                        current_points = db_user.points
             
             else:
                 raise Exception("不支持的游戏模式")
@@ -268,8 +263,6 @@ class GameManager:
             return {
                 "game_id": str(game_id),
                 "player_id": str(first_player_id),
-                "user_type": "guest" if is_guest else "token",
-                "has_points": has_points,
                 "current_points": current_points
             }
         
