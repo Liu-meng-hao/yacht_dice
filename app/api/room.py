@@ -223,7 +223,7 @@ async def join_room(
         OnlineRoom.id == room.id
     ).options(joinedload(OnlineRoom.players).joinedload(RoomPlayer.user)).first()
 
-    await manager.broadcast(room_code, {
+    await manager.broadcast(room.room_code, {
         "type": "room_updated",
         "data": build_room_response(room_with_players)
     })
@@ -273,7 +273,7 @@ async def leave_room(request: LeaveRoomRequest, db: Session = Depends(get_db), u
         if room.current_player_count == 0:
             room.is_deleted = 1
             db.commit()
-            await manager.broadcast(room_code, {
+            await manager.broadcast(room.room_code, {
                 "type": "room_updated",
                 "data": None
             })
@@ -292,7 +292,7 @@ async def leave_room(request: LeaveRoomRequest, db: Session = Depends(get_db), u
             OnlineRoom.id == room.id
         ).options(joinedload(OnlineRoom.players).joinedload(RoomPlayer.user)).first()
 
-        await manager.broadcast(room_code, {
+        await manager.broadcast(room.room_code, {
             "type": "room_updated",
             "data": build_room_response(room_after)
         })
@@ -348,7 +348,7 @@ async def kick_player(room_code: str, request: KickPlayerRequest, db: Session = 
         if room.current_player_count == 0:
             room.is_deleted = 1
             db.commit()
-            await manager.broadcast(room_code, {
+            await manager.broadcast(room.room_code, {
                 "type": "room_updated",
                 "data": None
             })
@@ -358,15 +358,15 @@ async def kick_player(room_code: str, request: KickPlayerRequest, db: Session = 
                 OnlineRoom.id == room.id
             ).options(joinedload(OnlineRoom.players).joinedload(RoomPlayer.user)).first()
 
-            await manager.broadcast(room_code, {
+            await manager.broadcast(room.room_code, {
                 "type": "room_updated",
                 "data": build_room_response(room_after)
             })
 
-        await manager.send_personal_message(room_code, target_player_id_str, {
+        await manager.send_personal_message(room.room_code, target_player_id_str, {
             "type": "player_kicked",
             "data": {
-                "room_code": room_code,
+                "room_code": room.room_code,
                 "player_id": request.target_player_id,
                 "message": "你已被房主移出房间"
             }
@@ -479,7 +479,8 @@ async def start_game(room_code: str, db: Session = Depends(get_db), user: User =
         players.append({
             "user_id": p.user_id,
             "player_name": p.player_name,
-            "is_ai": False
+            "is_ai": False,
+            "client_id": None  # 在线模式都是登录用户，不需要 client_id
         })
     
     game_data = GameManager.create_game("online", players)
@@ -492,7 +493,7 @@ async def start_game(room_code: str, db: Session = Depends(get_db), user: User =
     room.game_id = int(game_id)
     db.commit()
 
-    await manager.broadcast(room_code, {
+    await manager.broadcast(room.room_code, {
         "type": "room_updated",
         "data": build_room_response(room)
     })
@@ -500,7 +501,7 @@ async def start_game(room_code: str, db: Session = Depends(get_db), user: User =
     return ApiResponse.success(
         data=StartGameResponse(
             game_id=game_id,
-            room_code=room_code
+            room_code=room.room_code
         ),
         msg="游戏开始"
     )
@@ -532,7 +533,7 @@ async def dissolve_room(room_code: str, db: Session = Depends(get_db), user: Use
     room.is_deleted = 1
     db.commit()
 
-    await manager.broadcast(room_code, {
+    await manager.broadcast(room.room_code, {
         "type": "room_updated",
         "data": None
     })
@@ -582,7 +583,7 @@ async def set_ready(room_code: str, request: ReadyRequest, db: Session = Depends
             OnlineRoom.id == room.id
         ).options(joinedload(OnlineRoom.players).joinedload(RoomPlayer.user)).first()
 
-        await manager.broadcast(room_code, {
+        await manager.broadcast(room.room_code, {
             "type": "room_updated",
             "data": build_room_response(room_after)
         })

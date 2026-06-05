@@ -49,16 +49,20 @@ async def create_game(request: CreateGameRequest, user: Optional[User] = Depends
         if request.game_mode == GameMode.LOCAL:
             if not user:
                 raise HTTPException(status_code=401, detail="本地模式需要登录")
-            
-            # 使用用户昵称
-            player_name = request.player_name or user.nickname
-            
+
+            # 构建玩家列表
+            players = [{
+                "user_id": user.id,
+                "player_name": request.player_name or user.nickname,
+                "is_ai": False,
+                "client_id": None
+            }]
+
             result = GameManager.create_game(
                 game_mode=request.game_mode.value,
-                player_name=player_name,
-                client_id=None
+                players=players
             )
-            
+
             return ApiResponse.success(
                 data=CreateGameResponse(
                     game_id=result["game_id"],
@@ -69,18 +73,24 @@ async def create_game(request: CreateGameRequest, user: Optional[User] = Depends
                 ),
                 msg="游戏创建成功"
             )
-        
+
         # AI模式：游客和登录用户都可以玩
         elif request.game_mode == GameMode.AI:
             # 判断是游客还是登录用户
             if user:
                 # 登录用户：使用用户昵称，不需要 client_id，记录积分
-                player_name = request.player_name or user.nickname
+                players = [{
+                    "user_id": user.id,
+                    "player_name": request.player_name or user.nickname,
+                    "is_ai": False,
+                    "client_id": None
+                }, {
+                    "is_ai": True,
+                    "ai_difficulty": request.ai_difficulty
+                }]
                 result = GameManager.create_game(
                     game_mode=request.game_mode.value,
-                    player_name=player_name,
-                    client_id=None,  # 登录用户忽略 client_id
-                    ai_difficulty=request.ai_difficulty
+                    players=players
                 )
             else:
                 # 游客：后端自动生成 client_id，不记录积分
@@ -88,11 +98,18 @@ async def create_game(request: CreateGameRequest, user: Optional[User] = Depends
                 client_id = request.client_id or f"guest_{uuid.uuid4().hex[:12]}"
                 # 使用前端传递的 player_name，若无则使用默认名称
                 player_name = request.player_name or f"游客{client_id[-8:]}"
+                players = [{
+                    "user_id": None,
+                    "player_name": player_name,
+                    "is_ai": False,
+                    "client_id": client_id
+                }, {
+                    "is_ai": True,
+                    "ai_difficulty": request.ai_difficulty
+                }]
                 result = GameManager.create_game(
                     game_mode=request.game_mode.value,
-                    player_name=player_name,
-                    client_id=client_id,
-                    ai_difficulty=request.ai_difficulty
+                    players=players
                 )
             
             return ApiResponse.success(
