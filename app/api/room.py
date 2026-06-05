@@ -94,7 +94,8 @@ def build_room_response(room: OnlineRoom) -> RoomResponse:
         max_players=room.max_player_count,
         players=players,
         status=get_room_status_enum(room.room_status),
-        host_id=room.host_id
+        host_id=room.host_id,
+        game_id=str(room.game_id) if room.game_id else None
     )
 
 
@@ -230,7 +231,7 @@ async def join_room(
 
     return ApiResponse.success(
         data=JoinRoomResponse(
-            room=build_room_response(room_with_players),
+            room=room_response,
             player_id=str(user.id)
         ),
         msg="加入房间成功"
@@ -269,6 +270,8 @@ async def leave_room(request: LeaveRoomRequest, db: Session = Depends(get_db), u
         is_host = player.is_host
         db.delete(player)
         room.current_player_count -= 1
+
+        room_code = request.room_code
 
         if room.current_player_count == 0:
             room.is_deleted = 1
@@ -456,6 +459,9 @@ async def get_room(room_code: str, db: Session = Depends(get_db)):
     }
 )
 async def start_game(room_code: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    import logging
+    logger = logging.getLogger(__name__)
+    
     room = db.query(OnlineRoom).filter(
         OnlineRoom.room_code == room_code,
         OnlineRoom.is_deleted == 0
@@ -586,7 +592,7 @@ async def set_ready(room_code: str, request: ReadyRequest, db: Session = Depends
             "data": build_room_response(room_after)
         })
 
-        return ApiResponse.success(data=build_room_response(room_after), msg="设置成功")
+        return ApiResponse.success(data=room_response, msg="设置成功")
 
     except Exception as e:
         db.rollback()

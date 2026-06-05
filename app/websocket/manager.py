@@ -110,30 +110,33 @@ class ConnectionManager:
                 self.disconnect(room_id, player_id, websocket)
     
     async def broadcast(self, room_id: str, message: dict):
-        """广播消息（安全版本）"""
-        if room_id not in self.active_connections:
+        """广播消息（安全版本）
+        逐个捕获异常，并移除失效连接，确保一个连接失败不会影响其他连接
+        """
+        if room_id not in self.active_connections or room_id not in self.player_connections:
+            logger.warning(f"Broadcast: No active connections for room/game {room_id}")
             return
         
         message_str = json.dumps(message)
-        dead_connections = []
+        dead_player_ids = []
+        message_type = message.get("type", "unknown")
+        player_count = len(self.player_connections[room_id])
         
-        for connection in self.active_connections[room_id]:
+        logger.info(f"Broadcasting {message_type} to {player_count} players in room/game {room_id}")
+        
+        # 遍历 player_connections 而不是 active_connections，以便获取 player_id
+        for player_id, websocket in list(self.player_connections[room_id].items()):
             try:
-                await connection.send_text(message_str)
+                await websocket.send_text(message_str)
             except Exception as e:
-                logger.error(f"Broadcast failed for connection: {e}")
-                dead_connections.append(connection)
+                logger.error(f"Broadcast failed for player {player_id} in room/game {room_id}: {e}")
+                dead_player_ids.append(player_id)
         
         # 清理无效连接
-        for conn in dead_connections:
-            if conn in self.active_connections[room_id]:
-                self.active_connections[room_id].remove(conn)
-        
-        # 检查房间是否为空
-        if not self.active_connections[room_id]:
-            del self.active_connections[room_id]
-            if room_id in self.player_connections:
-                del self.player_connections[room_id]
+        for player_id in dead_player_ids:
+            websocket = self.player_connections[room_id].get(player_id)
+            if websocket:
+                self.disconnect(room_id, player_id, websocket)
     
     def get_player_count(self, room_id: str) -> int:
         """获取房间玩家数量"""
