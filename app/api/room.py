@@ -23,6 +23,7 @@ from app.models.user import User
 from app.game.game_manager import GameManager
 from app.core.response import ApiResponse, ApiResponseModel
 from app.core.security import verify_token
+from app.core.cache import cache
 from app.db.session import get_db
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
@@ -151,6 +152,9 @@ async def create_room(
             OnlineRoom.id == room.id
         ).options(joinedload(OnlineRoom.players).joinedload(RoomPlayer.user)).first()
 
+        # 更新缓存
+        await cache.update_room_and_players(room_with_players, room_with_players.players)
+
         return ApiResponse.success(
             data=build_room_response(room_with_players),
             msg="房间创建成功"
@@ -177,6 +181,11 @@ async def join_room(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user)
 ):
+    # 先尝试从缓存获取房间信息（快速检查）
+    cached_room = await cache.get_cached_room(request.room_code)
+    if cached_room and cached_room.get("is_deleted") == 1:
+        return ApiResponse.error(msg="房间不存在", code=404)
+
     room = db.query(OnlineRoom).filter(
         OnlineRoom.room_code == request.room_code,
         OnlineRoom.is_deleted == 0
@@ -197,13 +206,14 @@ async def join_room(
     ).first()
 
     if existing_player:
+        room_response = build_room_response(room)
         return ApiResponse.error(
             msg="你已在房间中",
             code=409,
             data={
                 "room_code": room.room_code,
                 "player_id": user.id,
-                "room": build_room_response(room)
+                "room": room_response
             }
         )
 
@@ -224,9 +234,13 @@ async def join_room(
         OnlineRoom.id == room.id
     ).options(joinedload(OnlineRoom.players).joinedload(RoomPlayer.user)).first()
 
+    # 更新缓存
+    await cache.update_room_and_players(room_with_players, room_with_players.players)
+
+    room_response = build_room_response(room_with_players)
     await manager.broadcast(room.room_code, {
         "type": "room_updated",
-        "data": build_room_response(room_with_players)
+        "data": room_response.model_dump() if hasattr(room_response, 'model_dump') else room_response.dict()
     })
 
     return ApiResponse.success(
@@ -276,6 +290,7 @@ async def leave_room(request: LeaveRoomRequest, db: Session = Depends(get_db), u
         if room.current_player_count == 0:
             room.is_deleted = 1
             db.commit()
+            await cache.invalidate_all_room_cache(room_code)
             await manager.broadcast(room.room_code, {
                 "type": "room_updated",
                 "data": None
@@ -295,9 +310,13 @@ async def leave_room(request: LeaveRoomRequest, db: Session = Depends(get_db), u
             OnlineRoom.id == room.id
         ).options(joinedload(OnlineRoom.players).joinedload(RoomPlayer.user)).first()
 
+        # 更新缓存
+        await cache.update_room_and_players(room_after, room_after.players)
+
+        room_response = build_room_response(room_after)
         await manager.broadcast(room.room_code, {
             "type": "room_updated",
-            "data": build_room_response(room_after)
+            "data": room_response.model_dump() if hasattr(room_response, 'model_dump') else room_response.dict()
         })
 
         return ApiResponse.success(msg="离开房间成功")
@@ -348,9 +367,11 @@ async def kick_player(room_code: str, request: KickPlayerRequest, db: Session = 
         db.delete(target_player)
         room.current_player_count -= 1
 
+        room_response = None
         if room.current_player_count == 0:
             room.is_deleted = 1
             db.commit()
+            await cache.invalidate_all_room_cache(room_code)
             await manager.broadcast(room.room_code, {
                 "type": "room_updated",
                 "data": None
@@ -361,9 +382,11 @@ async def kick_player(room_code: str, request: KickPlayerRequest, db: Session = 
                 OnlineRoom.id == room.id
             ).options(joinedload(OnlineRoom.players).joinedload(RoomPlayer.user)).first()
 
+            room_response = build_room_response(room_after)
+            await cache.update_room_and_players(room_after, room_after.players)
             await manager.broadcast(room.room_code, {
                 "type": "room_updated",
-                "data": build_room_response(room_after)
+                "data": room_response.model_dump() if hasattr(room_response, 'model_dump') else room_response.dict()
             })
 
         await manager.send_personal_message(room.room_code, target_player_id_str, {
@@ -375,11 +398,8 @@ async def kick_player(room_code: str, request: KickPlayerRequest, db: Session = 
             }
         })
 
-        if room.current_player_count > 0:
-            room_after = db.query(OnlineRoom).filter(
-                OnlineRoom.id == room.id
-            ).options(joinedload(OnlineRoom.players).joinedload(RoomPlayer.user)).first()
-            return ApiResponse.success(data=build_room_response(room_after), msg="踢出玩家成功")
+        if room.current_player_count > 0 and room_response:
+            return ApiResponse.success(data=room_response, msg="踢出玩家成功")
         else:
             return ApiResponse.success(data=None, msg="踢出玩家成功")
 
@@ -400,20 +420,49 @@ async def kick_player(room_code: str, request: KickPlayerRequest, db: Session = 
     }
 )
 async def get_room_list(db: Session = Depends(get_db)):
+    # 先尝试从缓存获取
+    cached_rooms = await cache.get_cached_online_rooms()
+    if cached_rooms is not None:
+        room_list = [
+            RoomListItem(
+                room_code=r["room_code"],
+                room_name=r["room_name"],
+                player_count=r["player_count"],
+                max_players=r["max_players"],
+                status=get_room_status_enum(r["status"])
+            ) for r in cached_rooms
+        ]
+        return ApiResponse.success(
+            data=RoomListResponse(rooms=room_list),
+            msg="获取成功"
+        )
+
     rooms = db.query(OnlineRoom).filter(
         OnlineRoom.room_status == 1,
         OnlineRoom.is_deleted == 0
     ).all()
 
-    room_list = [
-        RoomListItem(
+    room_list_data = []
+    room_list = []
+    for room in rooms:
+        room_data = {
+            "room_code": room.room_code,
+            "room_name": room.room_name or f"房间 {room.room_code}",
+            "player_count": room.current_player_count,
+            "max_players": room.max_player_count,
+            "status": room.room_status
+        }
+        room_list_data.append(room_data)
+        room_list.append(RoomListItem(
             room_code=room.room_code,
             room_name=room.room_name or f"房间 {room.room_code}",
             player_count=room.current_player_count,
             max_players=room.max_player_count,
             status=get_room_status_enum(room.room_status)
-        ) for room in rooms
-    ]
+        ))
+
+    # 缓存结果
+    await cache.cache_online_rooms(room_list_data)
 
     return ApiResponse.success(
         data=RoomListResponse(rooms=room_list),
@@ -433,6 +482,34 @@ async def get_room_list(db: Session = Depends(get_db)):
     }
 )
 async def get_room(room_code: str, db: Session = Depends(get_db)):
+    # 先尝试从缓存获取
+    cached_data = await cache.get_room_with_cache(room_code, db)
+    if cached_data:
+        # 构建响应
+        players = []
+        for p in cached_data["players"]:
+            players.append(RoomPlayerSchema(
+                player_id=str(p["user_id"]),
+                name=p["player_name"],
+                is_host=p["is_host"],
+                is_ready=p["is_ready"],
+                points=0  # 这里需要单独查询用户积分，暂时设为0
+            ))
+        
+        return ApiResponse.success(
+            data=RoomResponse(
+                room_code=cached_data["room_code"],
+                room_name=cached_data["room_name"],
+                max_players=cached_data["max_players"],
+                players=players,
+                status=get_room_status_enum(cached_data["status"]),
+                host_id=cached_data["host_id"],
+                game_id=str(cached_data["game_id"]) if cached_data["game_id"] else None
+            ),
+            msg="获取成功"
+        )
+
+    # 缓存未命中，从数据库加载
     room = db.query(OnlineRoom).filter(
         OnlineRoom.room_code == room_code,
         OnlineRoom.is_deleted == 0
@@ -440,6 +517,9 @@ async def get_room(room_code: str, db: Session = Depends(get_db)):
 
     if not room:
         return ApiResponse.error(msg="房间不存在", code=404)
+
+    # 更新缓存
+    await cache.update_room_and_players(room, room.players)
 
     return ApiResponse.success(
         data=build_room_response(room),
@@ -497,9 +577,12 @@ async def start_game(room_code: str, db: Session = Depends(get_db), user: User =
     room.game_id = int(game_id)
     db.commit()
 
+    # 更新缓存
+    await cache.update_room_and_players(room, room.players)
+
     await manager.broadcast(room.room_code, {
         "type": "room_updated",
-        "data": build_room_response(room)
+        "data": build_room_response(room).model_dump() if hasattr(build_room_response(room), 'model_dump') else build_room_response(room).dict()
     })
 
     return ApiResponse.success(
@@ -536,6 +619,9 @@ async def dissolve_room(room_code: str, db: Session = Depends(get_db), user: Use
 
     room.is_deleted = 1
     db.commit()
+
+    # 清除缓存
+    await cache.invalidate_all_room_cache(room_code)
 
     await manager.broadcast(room.room_code, {
         "type": "room_updated",
@@ -587,9 +673,13 @@ async def set_ready(room_code: str, request: ReadyRequest, db: Session = Depends
             OnlineRoom.id == room.id
         ).options(joinedload(OnlineRoom.players).joinedload(RoomPlayer.user)).first()
 
+        # 更新缓存
+        await cache.update_room_and_players(room_after, room_after.players)
+
+        room_response = build_room_response(room_after)
         await manager.broadcast(room.room_code, {
             "type": "room_updated",
-            "data": build_room_response(room_after)
+            "data": room_response.model_dump() if hasattr(room_response, 'model_dump') else room_response.dict()
         })
 
         return ApiResponse.success(data=room_response, msg="设置成功")

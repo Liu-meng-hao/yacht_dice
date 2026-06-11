@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from typing import Dict, List
 import json
 from app.schemas.game import (
@@ -76,7 +76,11 @@ async def init_score_panel(game_id: str, user: User = Depends(get_current_user))
         }
     }
 )
-async def get_lock_status(game_id: str, player_id: str, user: User = Depends(get_current_user)):
+async def get_lock_status(
+    game_id: str, 
+    player_id: str = Query(..., description="玩家ID"),
+    user: User = Depends(get_current_user)
+):
     game_data = GameManager.get_game(game_id)
     if not game_data:
         return ApiResponse.error(msg="游戏不存在", code=404)
@@ -283,16 +287,36 @@ async def get_lock_status(game_id: str, player_id: str, user: User = Depends(get
         }
     }
 )
-async def get_possible_scores(game_id: str, user: User = Depends(get_current_user)):
+async def get_possible_scores(
+    game_id: str, 
+    player_id: str = Query(..., description="玩家ID"),
+    user: User = Depends(get_current_user)
+):
     game_data = GameManager.get_game(game_id)
     if not game_data:
         return ApiResponse.error(msg="游戏不存在", code=404)
     
     game_dict = game_data.to_dict()
     dice = game_dict["dice"]
-    possible_scores: Dict[str, int] = {}
+    rolls_left = game_dict["rolls_left"]
+    
+    # 还没投骰子，不返回预览分
+    if rolls_left >= 3:
+        game_data.close()
+        return ApiResponse.success(
+            data=PossibleScoresResponse(possible_scores={}),
+            msg="获取成功"
+        )
+    
+    # 获取已锁定的计分项
+    locked_scores = game_data.get_player_scores(int(player_id))
+    locked_categories = set(locked_scores.keys())
+    
+    possible_scores: Dict[str, Optional[int]] = {}
     
     for category in ScoreCalculator.CATEGORIES:
+        if category in locked_categories:
+            continue  # 跳过已锁定的
         try:
             possible_scores[category] = ScoreCalculator.calculate_score(dice, category)
         except:

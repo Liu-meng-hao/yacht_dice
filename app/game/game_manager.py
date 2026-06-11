@@ -87,13 +87,13 @@ class GameData:
         return next((p for p in self.db_players if p.user_id == self.db_round.current_player_id), None)
     
     def get_player_scores(self, user_id: int) -> Dict[str, Optional[int]]:
-        """获取玩家的所有得分"""
+        """获取玩家的所有得分（只返回已提交的分数）"""
         details = self.db.query(PlayerScoreDetail).filter(
             PlayerScoreDetail.game_id == self.db_game_id,
             PlayerScoreDetail.player_id == user_id
         ).all()
         
-        scores = {cat: None for cat in ScoreCalculator.CATEGORIES}
+        scores = {}
         for detail in details:
             score_item = next((si for si in self.score_items.values() if si.id == detail.score_item_id), None)
             if score_item:
