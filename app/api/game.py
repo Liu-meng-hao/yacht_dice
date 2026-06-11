@@ -25,8 +25,8 @@ from app.websocket.manager import manager
 from app.core.dependencies import get_current_user, get_current_user_optional
 from app.models.user import User
 from fastapi import HTTPException
-from app.game.ai_controller import AIGameController
-from app.game.ai_task_manager import ai_task_manager
+from app.ai.controller import AIGameController
+from app.ai.task_manager import ai_task_manager
 
 router = APIRouter(tags=["游戏"])
 
@@ -406,7 +406,9 @@ async def submit_score(game_id: str, request: ScoreSubmitRequest, user: Optional
             next_player_data = next((p for p in game_dict["players"] if p["player_id"] == next_player), None)
             if next_player_data and next_player_data.get("is_ai"):
                 # 异步启动AI任务，不阻塞当前响应
-                asyncio.create_task(ai_task_manager.start_ai_task(game_id, AIGameController.execute_ai_turn(game_id)))
+                # 创建协程对象并传递给任务管理器
+                ai_coro = AIGameController.execute_ai_turn(game_id)
+                asyncio.create_task(ai_task_manager.start_ai_task(game_id, ai_coro))
 
         return ApiResponse.success(
             data=ScoreSubmitResponse(

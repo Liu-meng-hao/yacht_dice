@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 MAX_CONNECTIONS_PER_ROOM = 10  # 每个房间最大连接数
 PING_INTERVAL = 30  # 心跳间隔（秒）
 PONG_TIMEOUT = 60  # 超时时间（秒）
+WS_SEND_TIMEOUT = 5  # WebSocket 发送超时时间（秒）
 
 
 class ConnectionManager:
@@ -140,7 +141,14 @@ class ConnectionManager:
                             message_str: str, dead_player_ids: List[str]):
         """向单个玩家发送消息（供 gather 使用）"""
         try:
-            await websocket.send_text(message_str)
+            # 添加超时保护，防止单个慢连接阻塞整个广播
+            await asyncio.wait_for(
+                websocket.send_text(message_str), 
+                timeout=WS_SEND_TIMEOUT
+            )
+        except asyncio.TimeoutError:
+            logger.warning(f"Send timeout for player {player_id} in room/game {room_id}")
+            dead_player_ids.append(player_id)
         except Exception as e:
             logger.error(f"Broadcast failed for player {player_id} in room/game {room_id}: {e}")
             dead_player_ids.append(player_id)

@@ -102,8 +102,10 @@ def validate_password(password: str) -> tuple[bool, str]:
     return True, password.strip()
 
 
-def verify_token(token: str) -> dict:
+def verify_token(token: Optional[str]) -> dict:
     """验证 Token 并返回 payload"""
+    if not token:
+        raise HTTPException(status_code=401, detail="未提供认证令牌")
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         return payload

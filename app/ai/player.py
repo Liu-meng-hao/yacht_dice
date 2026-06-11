@@ -234,4 +234,3 @@ class AIPlayer:
             locked = self._lock_high_dice(dice)
         
         return locked
-

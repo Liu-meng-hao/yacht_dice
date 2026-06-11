@@ -12,8 +12,8 @@ from app.models.user import User
 from app.game.dice import DiceManager
 from app.game.scoring import ScoreCalculator
 from app.core.security import validate_nickname, sanitize_nickname, escape_html
-from app.game.ai_controller import AIGameController
-from app.game.ai_task_manager import ai_task_manager
+from app.ai.controller import AIGameController
+from app.ai.task_manager import ai_task_manager
 
 
 class GameData:
