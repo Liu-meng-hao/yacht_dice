@@ -15,7 +15,11 @@ from app.schemas.leaderboard import (
     UpdateWinStreakRequest,
     GameSettleRequest,
     GameSettlePlayerResult,
-    GameSettleResponse
+    GameSettleResponse,
+    UpdateGamesRequest,
+    UpdateGamesResponse,
+    TotalGamesLeaderboardResponse,
+    TotalGamesLeaderboardItem
 )
 from app.core.dependencies import get_current_user
 import json
@@ -35,6 +39,7 @@ CACHE_TTL = 300  # 5分钟缓存
 CACHE_KEY_HIGHEST_SCORE = "leaderboard:highest_score"
 CACHE_KEY_EXPERIENCE = "leaderboard:experience"
 CACHE_KEY_WIN_STREAK = "leaderboard:win_streak"
+CACHE_KEY_TOTAL_GAMES = "leaderboard:total_games"
 
 # 游戏模式系数配置
 GAME_MODE_MULTIPLIER = {
@@ -311,6 +316,80 @@ async def get_win_streak_leaderboard(
     )
 
 
+@router.get(
+    "/ranking-games",
+    summary="获取总对局次数排行榜",
+    description="获取按照total_games降序排列的用户排行榜（包含最后游戏时间）"
+)
+async def get_ranking_games_leaderboard(
+    limit: int = 10,
+    db: Session = Depends(get_db)
+):
+    """获取总对局次数排行榜接口"""
+    if limit <= 0 or limit > 100:
+        return JSONResponse(
+            content={"code": 400, "msg": "limit必须在1-100之间", "data": None},
+            media_type="application/json"
+        )
+    
+    # 尝试从Redis缓存获取
+    redis_client = get_redis_client()
+    cache_key = f"{CACHE_KEY_TOTAL_GAMES}:{limit}"
+    
+    if redis_client and redis_client.get_client():
+        cached = redis_client.get_client().get(cache_key)
+        if cached:
+            try:
+                cached_data = json.loads(cached)
+                logger.info(f"命中缓存: {cache_key}")
+                return JSONResponse(
+                    content={"code": 200, "msg": "获取排行榜成功", "data": cached_data},
+                    media_type="application/json"
+                )
+            except Exception as e:
+                logger.warning(f"缓存解析失败: {e}")
+    
+    # 查询总对局次数排行榜
+    users = db.query(User).filter(
+        User.is_deleted == 0,
+        User.user_type == 1
+    ).order_by(
+        desc(User.total_games)
+    ).limit(limit).all()
+    
+    leaderboard = []
+    for rank, user in enumerate(users, 1):
+        leaderboard.append({
+            "rank": rank,
+            "user_id": user.id,
+            "nickname": user.nickname,
+            "avatar": user.avatar,
+            "total_games": user.total_games,
+            "last_play_time": user.last_play_time.isoformat() if user.last_play_time else None
+        })
+    
+    total_count = db.query(User).filter(
+        User.is_deleted == 0,
+        User.user_type == 1
+    ).count()
+    
+    result = {"leaderboard": leaderboard, "total_count": total_count}
+    
+    if redis_client and redis_client.get_client():
+        try:
+            redis_client.get_client().setex(
+                cache_key, CACHE_TTL, json.dumps(result, ensure_ascii=False)
+            )
+            logger.info(f"缓存已更新: {cache_key}")
+        except Exception as e:
+            logger.warning(f"缓存写入失败: {e}")
+    
+    return JSONResponse(
+        content={"code": 200, "msg": "获取排行榜成功", "data": result},
+        media_type="application/json"
+    )
+
+
 @router.post(
     "/add-experience",
     summary="增加玩家经验值",
@@ -450,6 +529,83 @@ async def update_win_streak(
                 "is_win": request.is_win,
                 "current_win_streak": user.current_win_streak,
                 "max_win_streak": user.max_win_streak
+            }
+        },
+        media_type="application/json"
+    )
+
+
+@router.post(
+    "/update-games",
+    summary="更新总对局次数",
+    description="游戏结束时，更新胜利玩家的total_games字段和last_play_time（任何游戏模式都生效）"
+)
+async def update_games(
+    request: UpdateGamesRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    更新总对局次数接口
+    
+    - **winner_id**: 胜利玩家的ID
+    - **game_mode**: 游戏模式：local（本地）、ai（AI对战）、online（联机对战）
+    - **last_play_time**: 最后一次获胜时间（ISO格式字符串）
+    """
+    # 验证游戏模式参数
+    valid_game_modes = ["local", "ai", "online"]
+    if request.game_mode not in valid_game_modes:
+        return JSONResponse(
+            content={"code": 400, "msg": f"无效的游戏模式，有效值: {valid_game_modes}", "data": None},
+            media_type="application/json"
+        )
+    
+    user = db.query(User).filter(User.id == request.winner_id).first()
+    if not user:
+        return JSONResponse(
+            content={"code": 404, "msg": "用户不存在", "data": None},
+            media_type="application/json"
+        )
+    
+    # 任何游戏模式都更新总对局次数
+    user.total_games += 1
+    
+    # 更新最后游戏时间
+    if request.last_play_time:
+        try:
+            # 解析 ISO 格式的时间字符串
+            user.last_play_time = datetime.fromisoformat(request.last_play_time.replace("Z", "+00:00"))
+        except ValueError:
+            return JSONResponse(
+                content={"code": 400, "msg": "无效的时间格式，请使用ISO格式（如：2024-01-01T12:00:00）", "data": None},
+                media_type="application/json"
+            )
+    
+    db.commit()
+    db.refresh(user)
+    
+    # 清除总对局次数排行榜缓存
+    redis_client = get_redis_client()
+    if redis_client and redis_client.get_client():
+        try:
+            keys_to_delete = []
+            for key in redis_client.get_client().scan_iter(f"{CACHE_KEY_TOTAL_GAMES}:*"):
+                keys_to_delete.append(key)
+            if keys_to_delete:
+                redis_client.get_client().delete(*keys_to_delete)
+            logger.info("总对局次数排行榜缓存已清除")
+        except Exception as e:
+            logger.warning(f"清除缓存失败: {e}")
+    
+    return JSONResponse(
+        content={
+            "code": 200,
+            "msg": "总对局次数更新成功",
+            "data": {
+                "user_id": user.id,
+                "total_games": user.total_games,
+                "last_play_time": user.last_play_time.isoformat() if user.last_play_time else None,
+                "message": "总对局次数更新成功"
             }
         },
         media_type="application/json"
@@ -613,6 +769,8 @@ async def game_settle(
                 user.current_win_streak = 0
                 streak_updated = True
         
+        # 更新总对局次数（所有模式都更新）
+        user.total_games = (user.total_games or 0) + 1
         user.last_play_time = datetime.now()
         
         # 构建返回结果
@@ -641,10 +799,13 @@ async def game_settle(
         try:
             exp_keys = list(redis_client.get_client().scan_iter(f"{CACHE_KEY_EXPERIENCE}:*"))
             streak_keys = list(redis_client.get_client().scan_iter(f"{CACHE_KEY_WIN_STREAK}:*"))
+            games_keys = list(redis_client.get_client().scan_iter(f"{CACHE_KEY_TOTAL_GAMES}:*"))
             if exp_keys:
                 redis_client.get_client().delete(*exp_keys)
             if streak_keys:
                 redis_client.get_client().delete(*streak_keys)
+            if games_keys:
+                redis_client.get_client().delete(*games_keys)
             logger.info("排行榜缓存已清除")
         except Exception as e:
             logger.warning(f"清除缓存失败: {e}")
