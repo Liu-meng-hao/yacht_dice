@@ -9,6 +9,9 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+# 配置常量
+AI_TASK_TIMEOUT = 60  # AI 任务整体超时时间（秒）
+
 
 class AITaskManager:
     """AI任务管理器单例"""
@@ -52,33 +55,50 @@ class AITaskManager:
             game_id: 游戏ID
             ai_coro: AI协程
         """
-        # 检查是否已有任务在运行
-        if game_id in self.running_tasks and not self.running_tasks[game_id].done():
-            logger.warning(f"AI task already running for game {game_id}")
-            return
-        
-        # 设置AI回合正在运行标记
-        self.set_ai_turn_running(game_id, True)
-        
-        # 创建并启动任务
-        task = asyncio.create_task(self._run_ai_task(game_id, ai_coro))
-        self.running_tasks[game_id] = task
-        
-        # 添加任务完成回调
-        task.add_done_callback(lambda t: self._on_task_done(game_id, t))
-        
-        logger.info(f"Started AI task for game {game_id}")
+        # 使用全局锁保护任务启动过程，防止竞态条件
+        async with self._lock:
+            # 检查是否已有任务在运行
+            if game_id in self.running_tasks and not self.running_tasks[game_id].done():
+                logger.warning(f"AI task already running for game {game_id}")
+                return
+            
+            # 创建一个包装协程，包含超时保护和锁管理
+            async def ai_task_with_timeout():
+                try:
+                    # 添加整体超时保护，防止AI永久卡住
+                    await asyncio.wait_for(
+                        self._execute_ai_with_lock(game_id, ai_coro),
+                        timeout=AI_TASK_TIMEOUT
+                    )
+                except asyncio.TimeoutError:
+                    logger.error(f"AI task timed out after {AI_TASK_TIMEOUT} seconds for game {game_id}")
+                except Exception as e:
+                    logger.error(f"AI task error for game {game_id}: {e}")
+                    import traceback
+                    logger.error(traceback.format_exc())
+            
+            # 创建并启动任务
+            task = asyncio.create_task(ai_task_with_timeout())
+            self.running_tasks[game_id] = task
+            
+            # 添加任务完成回调
+            task.add_done_callback(lambda t: self._on_task_done(game_id, t))
+            
+            logger.info(f"Started AI task for game {game_id}")
     
-    async def _run_ai_task(self, game_id: str, ai_coro):
-        """运行AI任务"""
-        try:
+    async def _execute_ai_with_lock(self, game_id: str, ai_coro):
+        """执行AI协程并持有游戏锁"""
+        async with self.get_game_lock(game_id):
+            # 再次检查，防止在获取锁的过程中任务被启动
+            if game_id in self.running_tasks and not self.running_tasks[game_id].done():
+                logger.warning(f"AI task already running for game {game_id}")
+                return
+            
+            # 设置AI回合正在运行标记
+            self.set_ai_turn_running(game_id, True)
+            
+            # 执行实际的AI协程
             await ai_coro
-        except Exception as e:
-            logger.error(f"AI task error for game {game_id}: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-        finally:
-            self.set_ai_turn_running(game_id, False)
     
     def _on_task_done(self, game_id: str, task: asyncio.Task):
         """任务完成回调"""
@@ -89,6 +109,8 @@ class AITaskManager:
             logger.info(f"AI task cancelled for game {game_id}")
         except Exception as e:
             logger.error(f"AI task failed for game {game_id}: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
         finally:
             self.set_ai_turn_running(game_id, False)
             if game_id in self.running_tasks:
@@ -104,8 +126,7 @@ class AITaskManager:
                     await task
                 except asyncio.CancelledError:
                     pass
-            del self.running_tasks[game_id]
-            self.set_ai_turn_running(game_id, False)
+            # 注意：状态清理由 _on_task_done 回调统一处理，包括 del self.running_tasks
             logger.info(f"Cancelled AI task for game {game_id}")
     
     async def cancel_all_tasks(self):
@@ -126,4 +147,3 @@ class AITaskManager:
 
 # 全局单例实例
 ai_task_manager = AITaskManager()
-

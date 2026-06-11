@@ -97,8 +97,8 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str, player_id: str)
             }))
             
             # 检查是否需要恢复AI回合
-            from app.game.ai_controller import AIGameController
-            from app.game.ai_task_manager import ai_task_manager
+            from app.ai.controller import AIGameController
+            from app.ai.task_manager import ai_task_manager
             
             if game_dict["status"] == "playing":
                 current_player_data = next((p for p in game_dict["players"] if p["player_id"] == game_dict["current_player"]), None)
