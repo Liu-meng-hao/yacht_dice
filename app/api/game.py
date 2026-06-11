@@ -22,7 +22,7 @@ from app.schemas.game import (
 from app.game.game_manager import GameManager
 from app.core.response import ApiResponse, ApiResponseModel
 from app.websocket.manager import manager
-from app.core.dependencies import get_current_user_optional
+from app.core.dependencies import get_current_user, get_current_user_optional
 from app.models.user import User
 from fastapi import HTTPException
 from app.game.ai_controller import AIGameController
@@ -45,7 +45,7 @@ router = APIRouter(tags=["游戏"])
         }
     }
 )
-async def create_game(request: CreateGameRequest, user: Optional[User] = Depends(get_current_user_optional)):
+async def create_game(request: CreateGameRequest, user: User = Depends(get_current_user)):
     try:
         # LOCAL模式：必须是登录用户，必须传 player_name
         if request.game_mode == GameMode.LOCAL:
@@ -97,8 +97,6 @@ async def create_game(request: CreateGameRequest, user: Optional[User] = Depends
                 data=CreateGameResponse(
                     game_id=result["game_id"],
                     player_id=result["player_id"],
-                    user_type=result["user_type"],
-                    has_points=result["has_points"],
                     current_points=result["current_points"]
                 ),
                 msg="游戏创建成功"
