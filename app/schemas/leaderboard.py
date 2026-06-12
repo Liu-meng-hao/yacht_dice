@@ -81,6 +81,24 @@ class WinStreakResponse(BaseModel):
     total_count: int
 
 
+class WinRateItem(BaseModel):
+    """胜率排行榜项"""
+    rank: int
+    user_id: int
+    nickname: Optional[str] = None
+    avatar: Optional[str] = None
+    total_games: int
+    total_wins: int
+    win_rate: float
+    last_play_time: Optional[datetime] = None
+
+
+class WinRateResponse(BaseModel):
+    """胜率排行榜响应"""
+    leaderboard: List[WinRateItem]
+    total_count: int
+
+
 class AddExperienceRequest(BaseModel):
     """增加经验值请求"""
     user_id: int = Field(..., description="玩家ID")
