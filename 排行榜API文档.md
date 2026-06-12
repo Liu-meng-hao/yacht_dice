@@ -260,7 +260,109 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 ---
 
-### 4. 增加玩家经验值
+### 4. 获取总对局次数排行榜
+
+**接口**：`GET /ranking-games`
+
+**说明**：获取按照有效总对局次数（人机/联机）降序排列的排行榜，包含 Redis 缓存（5分钟）
+
+**请求参数**：
+
+| 参数 | 类型 | 必填 | 默认 | 说明 |
+|------|------|------|------|------|
+| limit | int | 否 | 10 | 返回数量，范围 1-100 |
+
+**响应示例**：
+
+```json
+{
+  "code": 200,
+  "msg": "获取排行榜成功",
+  "data": {
+    "leaderboard": [
+      {
+        "rank": 1,
+        "user_id": 1,
+        "nickname": "玩家A",
+        "avatar": "https://example.com/avatar.jpg",
+        "total_games": 50,
+        "last_play_time": "2024-01-15T10:30:00"
+      }
+    ],
+    "total_count": 100
+  }
+}
+```
+
+**响应字段说明**：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| data.leaderboard | array | 排行榜列表 |
+| data.leaderboard[].rank | int | 排名 |
+| data.leaderboard[].user_id | int | 用户ID |
+| data.leaderboard[].nickname | string\|null | 昵称 |
+| data.leaderboard[].avatar | string\|null | 头像URL |
+| data.leaderboard[].total_games | int | 有效总对局数 |
+| data.leaderboard[].last_play_time | string\|null | 最后游戏时间（ISO格式） |
+| data.total_count | int | 总玩家数 |
+
+---
+
+### 5. 获取胜率排行榜
+
+**接口**：`GET /win-rate`
+
+**说明**：获取胜率排行榜（要求总对局数 >= 10，仅统计非本地模式），包含 Redis 缓存（5分钟）
+
+**请求参数**：
+
+| 参数 | 类型 | 必填 | 默认 | 说明 |
+|------|------|------|------|------|
+| limit | int | 否 | 10 | 返回数量，范围 1-100 |
+
+**响应示例**：
+
+```json
+{
+  "code": 200,
+  "msg": "获取排行榜成功",
+  "data": {
+    "leaderboard": [
+      {
+        "rank": 1,
+        "user_id": 1,
+        "nickname": "玩家A",
+        "avatar": "https://example.com/avatar.jpg",
+        "total_games": 50,
+        "total_wins": 40,
+        "win_rate": 80.0,
+        "last_play_time": "2024-01-15T10:30:00"
+      }
+    ],
+    "total_count": 80
+  }
+}
+```
+
+**响应字段说明**：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| data.leaderboard | array | 排行榜列表 |
+| data.leaderboard[].rank | int | 排名 |
+| data.leaderboard[].user_id | int | 用户ID |
+| data.leaderboard[].nickname | string\|null | 昵称 |
+| data.leaderboard[].avatar | string\|null | 头像URL |
+| data.leaderboard[].total_games | int | 有效总对局数 |
+| data.leaderboard[].total_wins | int | 有效总胜场数 |
+| data.leaderboard[].win_rate | float | 胜率百分比 |
+| data.leaderboard[].last_play_time | string\|null | 最后游戏时间（ISO格式） |
+| data.total_count | int | 符合条件的玩家总数 |
+
+---
+
+### 6. 增加玩家经验值
 
 **接口**：`POST /add-experience`
 
@@ -336,7 +438,7 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 ---
 
-### 5. 更新玩家连胜状态
+### 7. 更新玩家连胜状态
 
 **接口**：`POST /update-win-streak`
 
@@ -393,7 +495,48 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 ---
 
-### 6. 游戏结束结算
+### 8. 更新总对局次数
+
+**接口**：`POST /update-games`
+
+**说明**：游戏结束时，更新胜利玩家的 total_games 字段和 last_play_time（排除本地模式）
+
+**认证要求**：需要 Token 认证
+
+**请求参数**：
+
+```json
+{
+  "winner_id": 1,
+  "game_mode": "online",
+  "last_play_time": "2024-01-15T10:30:00"
+}
+```
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| winner_id | int | 是 | 胜利玩家ID |
+| game_mode | string | 是 | 游戏模式：local（本地）、ai（AI对战）、online（联机对战） |
+| last_play_time | string | 否 | 最后获胜时间（ISO格式字符串） |
+
+**响应示例**：
+
+```json
+{
+  "code": 200,
+  "msg": "总对局次数更新成功",
+  "data": {
+    "user_id": 1,
+    "total_games": 51,
+    "last_play_time": "2024-01-15T10:30:00",
+    "message": "总对局次数更新成功"
+  }
+}
+```
+
+---
+
+### 9. 游戏结束结算
 
 **接口**：`POST /game-settle`
 
@@ -620,6 +763,34 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
   avatar?: string;
   streak: number;
   achieve_time?: string; // ISO格式时间
+}
+```
+
+### TotalGamesLeaderboardItem（总对局数排行项）
+
+```typescript
+{
+  rank: number;
+  user_id: number;
+  nickname?: string;
+  avatar?: string;
+  total_games: number;
+  last_play_time?: string; // ISO格式时间
+}
+```
+
+### WinRateItem（胜率排行项）
+
+```typescript
+{
+  rank: number;
+  user_id: number;
+  nickname?: string;
+  avatar?: string;
+  total_games: number;
+  total_wins: number;
+  win_rate: number;
+  last_play_time?: string; // ISO格式时间
 }
 ```
 
